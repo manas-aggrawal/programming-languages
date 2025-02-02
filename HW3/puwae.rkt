@@ -191,3 +191,46 @@
 (test (run "{with {x {post 1 2 +}}
                   {with {y {post 3 4 +}}
                         {post x y * {with {z 2} {+ z 3}} +}}}") => 26)
+;; Division by zero
+;;(test (run "{/ 5 0}") =error> "division by zero")
+;;(test (run "{post 5 0 /}") =error> "division by zero")
+;;(test (run "{with {x 0} {/ 10 x}}") =error> "division by zero")
+
+;; Decimal division results
+(test (run "{/ 5 2}") => 5/2)
+(test (run "{post 5 2 /}") => 5/2)
+;; Multiple levels of nesting
+(test (run "{with {x 1} {with {y 2} {with {z 3} {+ x {+ y z}}}}}") => 6)
+(test (run "{with {x {with {y 2} {+ y 3}}} {+ x 1}}") => 6)
+
+;; Shadowing in deeply nested expressions
+(test (run "{with {x 1} {with {x 2} {with {x 3} x}}}") => 3)
+(test (run "{with {x 1} {+ x {with {x 2} {+ x {with {x 3} x}}}}}") => 6)
+;; Mixed operations with nesting
+(test (run "{post 1 2 + 3 4 + *}") => 21)
+(test (run "{post 10 5 / 2 * 3 +}") => 7)
+
+;; Postfix with nested expressions
+(test (run "{post {with {x 5} {+ x 2}} {with {y 3} {* y 2}} +}") => 13)
+(test (run "{post {post 1 2 +} {post 3 4 +} *}") => 21)
+;; Invalid syntax
+(test (run "{with}") =error> "bad `with' syntax")
+(test (run "{post}") =error> "post-eval: post expression doesn't evaluate to a single number: ()")
+(test (run "{with {x} {+ x 1}}") =error> "bad `with' syntax")
+
+;; Invalid operations
+(test (run "{+ {post 1 2 +} {post}}") =error> "post-eval: post expression doesn't evaluate to a single number: ()")
+(test (run "{with {x {post + -}} x}") =error> "post-eval: not enough operands for operator: #<procedure:+>")
+
+;; Unbound variables
+(test (run "{with {x y} x}") =error> "free identifier")
+(test (run "{with {x {+ y 1}} x}") =error> "free identifier")
+;; Combining arithmetic and postfix
+(test (run "{+ {post 1 2 +} {* 3 4}}") => 15)
+(test (run "{with {x {post 1 2 +}} {post x {* 2 3} +}}") => 9)
+
+;; Complex nested expressions
+(test (run "{with {x {post 1 2 +}} 
+            {with {y {+ x 3}} 
+                  {post x y * {with {z {* 2 x}} {+ z 1}} +}}}") => 25)
+
