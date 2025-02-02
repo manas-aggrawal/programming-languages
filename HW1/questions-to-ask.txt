@@ -1,0 +1,2 @@
+- What are contracts?
+- What generally should be returned for bad input?
