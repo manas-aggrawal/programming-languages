@@ -174,6 +174,7 @@
       "post-eval: post expression doesn't evaluate to a single number: (2 1)")
 (test (run "{post 1 +}") =error>
       "post-eval: not enough operands for operator: #<procedure:+>")
+(test (run "{post {+ 1 3} 2 +}") => 6)
 
 (test (run "{with {x 5} {post x 15 +}}") => 20)
 (test (run "{with {x {post 20 10 -}} {post x 15 +}}") => 25)
