@@ -1,6 +1,6 @@
 ;; ** The PUWAE interpreter
 
-#lang pl 3
+#lang pl 03
 
 #| BNF for the PUWAE language:
      <PUWAE> ::= <num>
@@ -191,10 +191,6 @@
 (test (run "{with {x {post 1 2 +}}
                   {with {y {post 3 4 +}}
                         {post x y * {with {z 2} {+ z 3}} +}}}") => 26)
-;; Division by zero
-;;(test (run "{/ 5 0}") =error> "division by zero")
-;;(test (run "{post 5 0 /}") =error> "division by zero")
-;;(test (run "{with {x 0} {/ 10 x}}") =error> "division by zero")
 
 ;; Decimal division results
 (test (run "{/ 5 2}") => 5/2)
