@@ -84,17 +84,13 @@
                (subst bound-body from to)))]
     [(Post items) (Post (map post-subst items))]))
 
-(: post-eval : (Listof PostfixItem) -> Number)
-;; Evaluates a post expr by calling the helper starting with an empty stack.
-(define (post-eval items) (post-eval-helper items '()))
-
-(: post-eval-helper : (Listof PostfixItem) (Listof Number) -> Number)
-;; Helper function for post eval which uses a stack to evaluate a post
-;; expression. This is done by popping two elements in the stack when an
-;; operator is encountered. The result is pushed back on to the stack for
-;; further evaluation. When the stack contains only one element(base case),
-;; we return with that as the result.
-(define (post-eval-helper items stack)
+(: post-eval : (Listof PostfixItem) (Listof Number) -> Number)
+;; Helper function eval which uses a stack to evaluate a post expression.
+;; This is done by popping two elements in the stack when an operator is
+;; encountered. The result is pushed back on to the stack for further
+;; evaluation. When the stack contains only one element(base case), we return
+;; with that as the result.
+(define (post-eval items stack)
   (if (null? items)
       (match stack
         [(list result) result]
@@ -107,7 +103,7 @@
         (define (pop2-and-apply op)
           (match stack
             [(list a b remaining ...)
-             (post-eval-helper more (cons (op b a) remaining))]
+             (post-eval more (cons (op b a) remaining))]
             [else (error 'post-eval
                          "not enough operands for operator: ~s"
                          op)]))
@@ -117,7 +113,7 @@
           [(eq? '* 1st) (pop2-and-apply *)]
           [(eq? '/ 1st) (pop2-and-apply /)]
           [else ; has to be a PUWAE expression
-           (post-eval-helper more (cons (eval 1st) stack))]))))
+           (post-eval more (cons (eval 1st) stack))]))))
 
 (: eval : PUWAE -> Number)
 ;; evaluates PUWAE expressions by reducing them to numbers
@@ -133,7 +129,7 @@
                   bound-id
                   (Num (eval named-expr))))]
     [(Id name) (error 'eval "free identifier: ~s" name)]
-    [(Post more) (post-eval more)]))
+    [(Post more) (post-eval more '())]))
 
 (: run : String -> Number)
 ;; evaluate a PUWAE program contained in a string
@@ -153,9 +149,11 @@
 (test (run "{with {x 5} {with {y x} y}}") => 5)
 (test (run "{with {x 5} {with {x x} x}}") => 5)
 (test (run "{with {x 1} y}") =error> "free identifier")
-(test (run "{with {x} y}") =error>
+(test (run "{with {x} y}")
+      =error>
       "parse-sexpr: bad `with' syntax in (with (x) y)")
-(test (run "{* {with x y}}") =error>
+(test (run "{* {with x y}}")
+      =error>
       "parse-sexpr: bad syntax in (* (with x y))")
 (test (run "{with {x 5} {* x 10}}") => 50)
 (test (run "{with {x 5} {/ 100 5}}") => 20)
@@ -170,9 +168,11 @@
 (test (run "{post 1 {post 3 5 +} +}") => 9)
 (test (run "{post {post 5 1 -} {post 3 5 +} *}") => 32)
 (test (run "{post 1}") => 1)
-(test (run "{post 1 2}") =error>
+(test (run "{post 1 2}")
+      =error>
       "post-eval: post expression doesn't evaluate to a single number: (2 1)")
-(test (run "{post 1 +}") =error>
+(test (run "{post 1 +}")
+      =error>
       "post-eval: not enough operands for operator: #<procedure:+>")
 (test (run "{post {+ 1 3} 2 +}") => 6)
 
@@ -181,9 +181,12 @@
 (test (run "{with {x {post 5 1 2 + 4 * + 3 -}} {post x 2 /}}") => 7)
 (test (run "{with {x {post 20 10 -}}
                   {post {post x 20 *} {post x 15 +}/}}") => 8)
-(test (run "{with {x 5} {post x 2 3}}") =error>
-      "post-eval: post expression doesn't evaluate to a single number: (3 2 5)")
-(test (run "{with {x 5} {post x +}}") =error>
+(test (run "{with {x 5} {post x 2 3}}")
+      =error>
+      (string-append "post-eval: post expression doesn't "
+                     "evaluate to a single number: (3 2 5)"))
+(test (run "{with {x 5} {post x +}}")
+      =error>
       "post-eval: not enough operands for operator")
 (test (run "{with {x 5} {post y 2 +}}") =error> "free identifier")
 
@@ -211,12 +214,18 @@
 (test (run "{post {post 1 2 +} {post 3 4 +} *}") => 21)
 ;; Invalid syntax
 (test (run "{with}") =error> "bad `with' syntax")
-(test (run "{post}") =error> "post-eval: post expression doesn't evaluate to a single number: ()")
+(test (run "{post}")
+      =error>
+      "post-eval: post expression doesn't evaluate to a single number: ()")
 (test (run "{with {x} {+ x 1}}") =error> "bad `with' syntax")
 
 ;; Invalid operations
-(test (run "{+ {post 1 2 +} {post}}") =error> "post-eval: post expression doesn't evaluate to a single number: ()")
-(test (run "{with {x {post + -}} x}") =error> "post-eval: not enough operands for operator: #<procedure:+>")
+(test (run "{+ {post 1 2 +} {post}}")
+      =error>
+      "post-eval: post expression doesn't evaluate to a single number: ()")
+(test (run "{with {x {post + -}} x}")
+      =error>
+      "post-eval: not enough operands for operator: #<procedure:+>")
 
 ;; Unbound variables
 (test (run "{with {x y} x}") =error> "free identifier")
@@ -226,7 +235,8 @@
 (test (run "{with {x {post 1 2 +}} {post x {* 2 3} +}}") => 9)
 
 ;; Complex nested expressions
-(test (run "{with {x {post 1 2 +}} 
-            {with {y {+ x 3}} 
+(test (run "{with {x {post 1 2 +}}
+            {with {y {+ x 3}}
                   {post x y * {with {z {* 2 x}} {+ z 1}} +}}}") => 25)
 
+(define minutes-spent 300)
