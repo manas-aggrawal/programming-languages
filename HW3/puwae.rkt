@@ -143,6 +143,7 @@
 ;; tests
 (test (run "5") => 5)
 (test (run "{+ 5 5}") => 10)
+
 (test (run "{with {x 5} {+ x x}}") => 10)
 (test (run "{with {x {+ 5 5}} {+ x x}}") => 20)
 (test (run "{with {x 5} {with {y {- x 3}} {+ y y}}}") => 4)
