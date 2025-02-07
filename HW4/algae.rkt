@@ -164,4 +164,5 @@
 (test (run "{with {x 5} {with {x x} x}}") => 5)
 (test (run "{with {x 1} y}") =error> "free identifier")
 (test (run "{5 6 /}") =error> "parse-sexpr: bad syntax in (5 6 /)")
-(test (run "{with {5 5} {with {x x} x}}") =error> "parse-sexpr: bad `with' syntax in (with (5 5) (with (x x) x))")
+(test (run "{with {5 5} {with {x x} x}}") =error>
+      "parse-sexpr: bad `with' syntax in (with (5 5) (with (x x) x))")
