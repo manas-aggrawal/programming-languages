@@ -126,12 +126,18 @@
 (define (eval expr)
   (cases expr
     [(Num n) n]
-    [(Add args) (+ (eval-number (first args))
-                   (eval-number (second args)))]
-    [(Mul args) (* (eval-number (first args))
-                   (eval-number (second args)))]
-    [(Sub fst args) (- (eval-number fst)
-                       (eval-number (first args)))]
+    [(Add args)
+     (if (null? args)
+         0
+         (foldl + 0 (map eval-number args)))]
+    [(Mul args)
+     (if (null? args)
+         1
+         (foldl * 1 (map eval-number args)))]
+    [(Sub fst args)
+     (cond
+       [(not (empty? fst)) (error "No arguments given! Atleast one is required")]
+       [else (- fst (foldl + 0 (map eval-number args)))])]
     [(Div fst args) (/ (eval-number fst)
                        (eval-number (first args)))]
     [(With bound-id named-expr bound-body)
@@ -149,7 +155,11 @@
 ;; tests (for simple expressions)
 (test (run "5") => 5)
 (test (run "{+ 5 5}") => 10)
+(test (run "{+ 5 5 5 5}") => 20)
+(test (run "{+}") => 0)
 (test (run "{* 5 5}") => 25)
+(test (run "{* 5 5 5 5}") => 625)
+(test (run "{*}") => 1)
 (test (run "{/ 5 6}") => 5/6)
 (test (run "{with {x {+ 5 5}} {+ x x}}") => 20)
 (test (run "{with {x {* 5 6}} {* x x}}") => 900)
