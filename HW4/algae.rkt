@@ -134,12 +134,11 @@
      (if (null? args)
          1
          (foldl * 1 (map eval-number args)))]
-    [(Sub fst args)
-     (cond
-       [(not (empty? fst)) (error "No arguments given! Atleast one is required")]
-       [else (- fst (foldl + 0 (map eval-number args)))])]
-    [(Div fst args) (/ (eval-number fst)
-                       (eval-number (first args)))]
+    [(Sub fst args) (- (eval-number fst) (foldl + 0 (map eval-number args)))]
+     ;;(cond
+       ;;[(not (empty? fst)) (error "No arguments given! Atleast one is required")]
+       ;;[else ])]
+    [(Div fst args) (/ (eval-number fst) (foldl * 1 (map eval-number args)))]
     [(With bound-id named-expr bound-body)
      (eval (subst bound-body
                   bound-id
@@ -156,11 +155,13 @@
 (test (run "5") => 5)
 (test (run "{+ 5 5}") => 10)
 (test (run "{+ 5 5 5 5}") => 20)
+(test (run "{- 10 5 3 1}") => 1)
 (test (run "{+}") => 0)
 (test (run "{* 5 5}") => 25)
 (test (run "{* 5 5 5 5}") => 625)
 (test (run "{*}") => 1)
 (test (run "{/ 5 6}") => 5/6)
+(test (run "{/ 20 5 2}") => 2)
 (test (run "{with {x {+ 5 5}} {+ x x}}") => 20)
 (test (run "{with {x {* 5 6}} {* x x}}") => 900)
 (test (run "{with {x {/ 20 10}} {/ x x}}") => 1)
