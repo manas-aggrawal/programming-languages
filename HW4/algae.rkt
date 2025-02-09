@@ -119,7 +119,12 @@
      eval({/ E})        = 1/evalN(E)
      eval({- E1 E ...}) = evalN(E1) - (evalN(E) + ...)
      eval({/ E1 E ...}) = evalN(E1) / (evalN(E) * ...)
-     eval({< E1 E2}) = evalN(E1) / (evalN(E) * ...)
+     eval({< E1 E2})    = if evalN(E1) is less than evalN(E2) return true TODO: Check syntax
+                          otherwise return false
+     eval({= E1 E2})    = if evalN(E1) is equal to evalN(E2) return true
+                          otherwise return false
+     eval({<= E1 E2})   = if evalN(E1) is less or equal to evalN(E2) return true
+                          otherwise return false
      eval(id)           = error!
      eval({with {x E1} E2}) = eval(E2[eval(E1)/x])
      eval({if E1 E2 E3}) =  if evalB(E1) is true : eval(E2),
