@@ -134,11 +134,17 @@
      (if (null? args)
          1
          (foldl * 1 (map eval-number args)))]
-    [(Sub fst args) (- (eval-number fst) (foldl + 0 (map eval-number args)))]
-     ;;(cond
-       ;;[(not (empty? fst)) (error "No arguments given! Atleast one is required")]
-       ;;[else ])]
-    [(Div fst args) (/ (eval-number fst) (foldl * 1 (map eval-number args)))]
+    [(Sub fst args)
+     (if (null? args)
+         (- (eval-number fst)) ; Negate the single argument if no others
+         (- (eval-number fst) (foldl + 0 (map eval-number args))))]
+    [(Div fst args)
+     (if (null? args)
+         (eval-number fst) ; Division by one value returns that value
+         (let ([denom (foldl * 1 (map eval-number args))])
+           (if (zero? denom)
+               (error 'eval "Division by zero!")
+               (/ (eval-number fst) denom))))]
     [(With bound-id named-expr bound-body)
      (eval (subst bound-body
                   bound-id
@@ -159,9 +165,12 @@
 (test (run "{+}") => 0)
 (test (run "{* 5 5}") => 25)
 (test (run "{* 5 5 5 5}") => 625)
+(test (run "{- 10}") => -10)
 (test (run "{*}") => 1)
 (test (run "{/ 5 6}") => 5/6)
 (test (run "{/ 20 5 2}") => 2)
+(test (run "{/ 20}") => 20)
+(test (run "{/ 20 0}") =error> "Division by zero")
 (test (run "{with {x {+ 5 5}} {+ x x}}") => 20)
 (test (run "{with {x {* 5 6}} {* x x}}") => 900)
 (test (run "{with {x {/ 20 10}} {/ x x}}") => 1)
