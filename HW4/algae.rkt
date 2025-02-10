@@ -145,7 +145,8 @@
      eval({/ E})             = 1/evalN(E)
      eval({- E1 E ...})      = evalN(E1) - (evalN(E) + ...)
      eval({/ E1 E ...})      = evalN(E1) / (evalN(E) * ...)
-     eval({< E1 E2})         = if evalN(E1) is less than evalN(E2) return true TODO: Check syntax
+ TODO: Check syntax
+     eval({< E1 E2})         = if evalN(E1) is less than evalN(E2) return true
                                otherwise return false
      eval({= E1 E2})         = if evalN(E1) is equal to evalN(E2) return true
                                otherwise return false
@@ -155,7 +156,8 @@
      eval(id)                = error!
      eval({with {x E1} E2})  = eval(E2[eval(E1)/x])
      eval({if E1 E2 E3})     = if evalB(E1) is true : eval(E2),
-                               if evalB(E1) is false: eval(E3) // TODO: Check syntax
+ TODO: Check syntax
+                               if evalB(E1) is false: eval(E3)
      eval({not E})           = eval({if E False True})
      eval({and E1 E2})       = eval({if E1 {if E2 True False} False})
      eval({or E1 E2})        = eval({if E1 True {if E2 True False}})
@@ -325,3 +327,5 @@
       "eval-boolean: need a boolean when evaluating (Num 5), but got 5")
 (test (run "{or 5 False}") =error>
       "eval-boolean: need a boolean when evaluating (Num 5), but got 5")
+
+(define minutes-spent 300)
