@@ -9,14 +9,14 @@
                | { < <ALGAE> <ALGAE> }
                | { = <ALGAE> <ALGAE> }
                | { <= <ALGAE> <ALGAE> }
-               | True
-               | False
                | { with { <id> <ALGAE> } <ALGAE> }
                | { if <ALGAE> <ALGAE> <ALGAE> }
-               | {not <ALGAE>}
-               | {and <ALGAE> <ALGAE>}
-               | {or <ALGAE> <ALGAE>}
+               | { not <ALGAE> }
+               | { and <ALGAE> <ALGAE> }
+               | { or <ALGAE> <ALGAE> }
                | <id>
+               | True
+               | False
 |#
 
 ;; ALGAE abstract syntax trees
@@ -34,24 +34,20 @@
   [If     ALGAE ALGAE ALGAE]
   [With   Symbol ALGAE ALGAE])
 
-(: Not : Sexpr -> ALGAE)
+(: Not : ALGAE -> ALGAE)
 ;; Helper to generate binding for Not operation
 (define (Not expr)
-  (If (parse-sexpr expr) (Bool #f) (Bool #t)))
+  (If expr (Bool #f) (Bool #t)))
 
-(: And : Sexpr Sexpr -> ALGAE)
+(: And : ALGAE ALGAE -> ALGAE)
 ;; Helper to generate binding for And operation
 (define (And arg1 arg2)
-  (If (parse-sexpr arg1)
-      (If (parse-sexpr arg2) (Bool #t) (Bool #f))
-      (Bool #f)))
+  (If arg1 arg2 (Bool #f)))
 
-(: Or : Sexpr Sexpr -> ALGAE)
+(: Or : ALGAE ALGAE -> ALGAE)
 ;; Helper to generate binding for Not operation
 (define (Or arg1 arg2)
-  (If (parse-sexpr arg1)
-      (Bool #t)
-      (If (parse-sexpr arg2) (Bool #t) (Bool #f))))
+  (If arg1 (Bool #t) arg2))
 
 (: parse-sexpr : Sexpr -> ALGAE)
 ;; parses s-expressions into ALGAEs
@@ -78,9 +74,9 @@
     [(list '<= lhs rhs )    (LessEq (parse-sexpr lhs) (parse-sexpr rhs))]
     [(list 'if c t f)       (If (parse-sexpr c)
                                 (parse-sexpr t) (parse-sexpr f))]
-    [(list 'not arg)        (Not arg)]
-    [(list 'and arg1 arg2)  (And arg1 arg2)]
-    [(list 'or arg1 arg2)   (Or arg1 arg2)]
+    [(list 'not arg)        (Not (parse-sexpr arg))]
+    [(list 'and arg1 arg2)  (And (parse-sexpr arg1) (parse-sexpr arg2))]
+    [(list 'or arg1 arg2)   (Or  (parse-sexpr arg1) (parse-sexpr arg2))]
     [else (error 'parse-sexpr "bad syntax in ~s" sexpr)]))
 
 (: parse : String -> ALGAE)
@@ -145,7 +141,6 @@
      eval({/ E})             = 1/evalN(E)
      eval({- E1 E ...})      = evalN(E1) - (evalN(E) + ...)
      eval({/ E1 E ...})      = evalN(E1) / (evalN(E) * ...)
- TODO: Check syntax
      eval({< E1 E2})         = if evalN(E1) is less than evalN(E2) return true
                                otherwise return false
      eval({= E1 E2})         = if evalN(E1) is equal to evalN(E2) return true
@@ -155,9 +150,9 @@
                                otherwise return false
      eval(id)                = error!
      eval({with {x E1} E2})  = eval(E2[eval(E1)/x])
-     eval({if E1 E2 E3})     = if evalB(E1) is true : eval(E2),
- TODO: Check syntax
-                               if evalB(E1) is false: eval(E3)
+     eval({if E1 E2 E3})     = if evalB(E1) is true, return eval(E2),
+                               if evalB(E1) is false, return eval(E3)
+TODO: Formal spec lang
      eval({not E})           = eval({if E False True})
      eval({and E1 E2})       = eval({if E1 {if E2 True False} False})
      eval({or E1 E2})        = eval({if E1 True {if E2 True False}})
@@ -320,6 +315,13 @@
 (test (run "{or False True}") => #t)
 (test (run "{or False False}") => #f)
 (test (run "{or True 5}") => #t)
+
+(test (run "{and 1 True}") =error>
+      "eval-boolean: need a boolean when evaluating (Num 1), but got 1")
+(test (run "{and True 5}") => 5)
+(test (run "{if {and True 1} 2 3}") =error>
+      (string-append "eval-boolean: need a boolean when "
+                     "evaluating (If (Bool #t) (Num 1) (Bool #f)), but got 1"))
 
 (test (run "{not 5}") =error>
       "eval-boolean: need a boolean when evaluating (Num 5), but got 5")
