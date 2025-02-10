@@ -76,7 +76,8 @@
     [(list '< lhs rhs )     (Less (parse-sexpr lhs) (parse-sexpr rhs))]
     [(list '= lhs rhs )     (Equal (parse-sexpr lhs) (parse-sexpr rhs))]
     [(list '<= lhs rhs )    (LessEq (parse-sexpr lhs) (parse-sexpr rhs))]
-    [(list 'if c t f)       (If (parse-sexpr c) (parse-sexpr t) (parse-sexpr f))]
+    [(list 'if c t f)       (If (parse-sexpr c)
+                                (parse-sexpr t) (parse-sexpr f))]
     [(list 'not arg)        (Not arg)]
     [(list 'and arg1 arg2)  (And arg1 arg2)]
     [(list 'or arg1 arg2)   (Or arg1 arg2)]
@@ -148,7 +149,8 @@
                                otherwise return false
      eval({= E1 E2})         = if evalN(E1) is equal to evalN(E2) return true
                                otherwise return false
-     eval({<= E1 E2})        = if evalN(E1) is less or equal to evalN(E2) return true
+     eval({<= E1 E2})        = if evalN(E1) is lesser than or equal to
+                                  evalN(E2) return true
                                otherwise return false
      eval(id)                = error!
      eval({with {x E1} E2})  = eval(E2[eval(E1)/x])
@@ -295,13 +297,15 @@
 (test (run "{with {x True} {if x 5 10}}") => 5)
 (test (run "{with {x False} {if x 5 10}}") => 10)
 (test (run "{with {x 3} {if {< x 5} 1 0}}") => 1)
-(test (run "{with {y 10} {if {= y 10} {with {z 5} {+ z y}} {with {z 2} {* z y}}}}")
-      => 15)
+(test (run "{with {y 10}
+            {if {= y 10} {with {z 5} {+ z y}} {with {z 2} {* z y}}}}")
+            => 15)
 (test (run "{with {a 4} {+ a {if {<= a 5} 1 -1}}}") => 5)
 (test (run "{with {x 5} {if x 1 2}}") =error>
       "eval-boolean: need a boolean when evaluating (Num 5), but got 5")
 (test (run "{with {x 8} {with {y {if {< x 10} 2 3}} {* x y}}}") => 16)
-(test (run "{with {a 7} {with {b {if {= a 7} {+ 1 2} {* 3 4}}} {/ b 2}}}") => 3/2)
+(test (run "{with {a 7}
+            {with {b {if {= a 7} {+ 1 2} {* 3 4}}} {/ b 2}}}") => 3/2)
 (test (run "{with {flag False} {if flag {+ 1 2} {* 3 4}}}") => 12)
 (test (run "{with {x 5} {if True y 10}}") =error> "eval: free identifier: y")
 
