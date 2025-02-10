@@ -13,6 +13,9 @@
                | False
                | { with { <id> <ALGAE> } <ALGAE> }
                | { if <ALGAE> <ALGAE> <ALGAE> }
+               | {not <ALGAE>}
+               | {and <ALGAE> <ALGAE>}
+               | {or <ALGAE> <ALGAE>}
                | <id>
 |#
 
@@ -30,6 +33,25 @@
   [Id     Symbol]
   [If     ALGAE ALGAE ALGAE]
   [With   Symbol ALGAE ALGAE])
+
+(: Not : Sexpr -> ALGAE)
+;; Helper to generate binding for Not operation
+(define (Not expr)
+  (If (parse-sexpr expr) (Bool #f) (Bool #t)))
+
+(: And : Sexpr Sexpr -> ALGAE)
+;; Helper to generate binding for And operation
+(define (And arg1 arg2)
+  (If (parse-sexpr arg1)
+      (If (parse-sexpr arg2) (Bool #t) (Bool #f))
+      (Bool #f)))
+
+(: Or : Sexpr Sexpr -> ALGAE)
+;; Helper to generate binding for Not operation
+(define (Or arg1 arg2)
+  (If (parse-sexpr arg1)
+      (Bool #t)
+      (If (parse-sexpr arg2) (Bool #t) (Bool #f))))
 
 (: parse-sexpr : Sexpr -> ALGAE)
 ;; parses s-expressions into ALGAEs
@@ -55,6 +77,9 @@
     [(list '= lhs rhs )     (Equal (parse-sexpr lhs) (parse-sexpr rhs))]
     [(list '<= lhs rhs )    (LessEq (parse-sexpr lhs) (parse-sexpr rhs))]
     [(list 'if c t f)       (If (parse-sexpr c) (parse-sexpr t) (parse-sexpr f))]
+    [(list 'not arg)        (Not arg)]
+    [(list 'and arg1 arg2)  (And arg1 arg2)]
+    [(list 'or arg1 arg2)   (Or arg1 arg2)]
     [else (error 'parse-sexpr "bad syntax in ~s" sexpr)]))
 
 (: parse : String -> ALGAE)
@@ -112,25 +137,28 @@
     [(If c t f) (If (subst* c) (subst* t) (subst* f))]))
 
 #| Formal specs for `eval':
-     eval(N)            = N
-     eval({+ E ...})    = evalN(E) + ...
-     eval({* E ...})    = evalN(E) * ...
-     eval({- E})        = -evalN(E)
-     eval({/ E})        = 1/evalN(E)
-     eval({- E1 E ...}) = evalN(E1) - (evalN(E) + ...)
-     eval({/ E1 E ...}) = evalN(E1) / (evalN(E) * ...)
-     eval({< E1 E2})    = if evalN(E1) is less than evalN(E2) return true TODO: Check syntax
-                          otherwise return false
-     eval({= E1 E2})    = if evalN(E1) is equal to evalN(E2) return true
-                          otherwise return false
-     eval({<= E1 E2})   = if evalN(E1) is less or equal to evalN(E2) return true
-                          otherwise return false
-     eval(id)           = error!
-     eval({with {x E1} E2}) = eval(E2[eval(E1)/x])
-     eval({if E1 E2 E3}) =  if evalB(E1) is true : eval(E2),
-                            if evalB(E1) is false: eval(E3) // TODO: Check syntax
-     evalN(E) = eval(E) if it is a number, error otherwise
-     evalB(E) = eval(E) if it is a boolean error otherwise
+     eval(N)                 = N
+     eval({+ E ...})         = evalN(E) + ...
+     eval({* E ...})         = evalN(E) * ...
+     eval({- E})             = -evalN(E)
+     eval({/ E})             = 1/evalN(E)
+     eval({- E1 E ...})      = evalN(E1) - (evalN(E) + ...)
+     eval({/ E1 E ...})      = evalN(E1) / (evalN(E) * ...)
+     eval({< E1 E2})         = if evalN(E1) is less than evalN(E2) return true TODO: Check syntax
+                               otherwise return false
+     eval({= E1 E2})         = if evalN(E1) is equal to evalN(E2) return true
+                               otherwise return false
+     eval({<= E1 E2})        = if evalN(E1) is less or equal to evalN(E2) return true
+                               otherwise return false
+     eval(id)                = error!
+     eval({with {x E1} E2})  = eval(E2[eval(E1)/x])
+     eval({if E1 E2 E3})     = if evalB(E1) is true : eval(E2),
+                               if evalB(E1) is false: eval(E3) // TODO: Check syntax
+     eval({not E})           = eval({if E False True})
+     eval({and E1 E2})       = eval({if E1 {if E2 True False} False})
+     eval({or E1 E2})        = eval({if E1 True {if E2 True False}})
+     evalN(E)                = eval(E) if it is a number, error otherwise
+     evalB(E)                = eval(E) if it is a boolean error otherwise
 |#
 
 (: eval-number : ALGAE -> Number)
@@ -258,7 +286,6 @@
 
 (test (run "{< True False}") =error>
       "eval-number: need a number when evaluating (Bool #t), but got #t")
-
 ;;
 ;; ;; Error: invalid relational operator arguments
 (test (run "{< 1}") =error> "bad syntax in (< 1)")
@@ -268,7 +295,8 @@
 (test (run "{with {x True} {if x 5 10}}") => 5)
 (test (run "{with {x False} {if x 5 10}}") => 10)
 (test (run "{with {x 3} {if {< x 5} 1 0}}") => 1)
-(test (run "{with {y 10} {if {= y 10} {with {z 5} {+ z y}} {with {z 2} {* z y}}}}") => 15)
+(test (run "{with {y 10} {if {= y 10} {with {z 5} {+ z y}} {with {z 2} {* z y}}}}")
+      => 15)
 (test (run "{with {a 4} {+ a {if {<= a 5} 1 -1}}}") => 5)
 (test (run "{with {x 5} {if x 1 2}}") =error>
       "eval-boolean: need a boolean when evaluating (Num 5), but got 5")
@@ -276,3 +304,20 @@
 (test (run "{with {a 7} {with {b {if {= a 7} {+ 1 2} {* 3 4}}} {/ b 2}}}") => 3/2)
 (test (run "{with {flag False} {if flag {+ 1 2} {* 3 4}}}") => 12)
 (test (run "{with {x 5} {if True y 10}}") =error> "eval: free identifier: y")
+
+
+(test (run "{not True}") => #f)
+(test (run "{not False}") => #t)
+(test (run "{and True True}") => #t)
+(test (run "{and True False}") => #f)
+(test (run "{or True False}") => #t)
+(test (run "{or False True}") => #t)
+(test (run "{or False False}") => #f)
+(test (run "{or True 5}") => #t)
+
+(test (run "{not 5}") =error>
+      "eval-boolean: need a boolean when evaluating (Num 5), but got 5")
+(test (run "{and 5 True}") =error>
+      "eval-boolean: need a boolean when evaluating (Num 5), but got 5")
+(test (run "{or 5 False}") =error>
+      "eval-boolean: need a boolean when evaluating (Num 5), but got 5")
