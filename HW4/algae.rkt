@@ -141,18 +141,15 @@
      eval({/ E})             = 1/evalN(E)
      eval({- E1 E ...})      = evalN(E1) - (evalN(E) + ...)
      eval({/ E1 E ...})      = evalN(E1) / (evalN(E) * ...)
-     eval({< E1 E2})         = if evalN(E1) is less than evalN(E2) return true
-                               otherwise return false
-     eval({= E1 E2})         = if evalN(E1) is equal to evalN(E2) return true
-                               otherwise return false
+     eval({< E1 E2})         = if evalN(E1) is less than evalN(E2) True
+                               otherwise False
+     eval({= E1 E2})         = if evalN(E1) is equal to evalN(E2) True
+                               otherwise False
      eval({<= E1 E2})        = if evalN(E1) is lesser than or equal to
-                                  evalN(E2) return true
-                               otherwise return false
+                               evalN(E2) True otherwise False
      eval(id)                = error!
      eval({with {x E1} E2})  = eval(E2[eval(E1)/x])
-     eval({if E1 E2 E3})     = if evalB(E1) is true, return eval(E2),
-                               if evalB(E1) is false, return eval(E3)
-TODO: Formal spec lang
+     eval({if E1 E2 E3})     = if evalB(E1) is True eval(E2) otherwise eval(E3)
      eval({not E})           = eval({if E False True})
      eval({and E1 E2})       = eval({if E1 {if E2 True False} False})
      eval({or E1 E2})        = eval({if E1 True {if E2 True False}})
@@ -329,5 +326,6 @@ TODO: Formal spec lang
       "eval-boolean: need a boolean when evaluating (Num 5), but got 5")
 (test (run "{or 5 False}") =error>
       "eval-boolean: need a boolean when evaluating (Num 5), but got 5")
+;; TODO add more tests
 
 (define minutes-spent 300)
