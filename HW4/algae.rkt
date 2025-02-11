@@ -195,16 +195,10 @@
 ;; TODO: Alignment
 (define (eval expr)
   (cases expr
-    [(Num n)  n]
-    [(Bool b) b]
-    [(Add args)
-     (if (null? args)
-         0
-         (foldl + 0 (map eval-number args)))]
-    [(Mul args)
-     (if (null? args)
-         1
-         (foldl * 1 (map eval-number args)))]
+    [(Num n)    n]
+    [(Bool b)   b]
+    [(Add args) (if (null? args) 0 (foldl + 0 (map eval-number args)))]
+    [(Mul args) (if (null? args) 1 (foldl * 1 (map eval-number args)))]
     [(Sub fst args)
      (if (null? args)
          (- (eval-number fst)) ; Negate the single argument if no others
@@ -219,13 +213,14 @@
     [(Less lhs rhs)   (< (eval-number lhs) (eval-number rhs))]
     [(Equal lhs rhs)  (= (eval-number lhs) (eval-number rhs))]
     [(LessEq lhs rhs) (<= (eval-number lhs) (eval-number rhs))]
+    [(If c t f)       (if (eval-boolean c) (eval t) (eval f))]
     [(With bound-id named-expr bound-body)
      (eval (subst bound-body
                   bound-id
                   ;; see the above `value->algae' helper
                   (value->algae (eval named-expr))))]
-    [(If c t f) (if (eval-boolean c) (eval t) (eval f))]
-    [(Id name) (error 'eval "free identifier: ~s" name)]))
+    [(Id name)        (error 'eval "free identifier: ~s" name)]))
+
 
 (: run : String -> (U Number Boolean))
 ;; evaluate an ALGAE program contained in a string
@@ -236,16 +231,20 @@
 (test (run "5") => 5)
 (test (run "{+ 5 5}") => 10)
 (test (run "{+ 5 5 5 5}") => 20)
-(test (run "{- 10 5 3 1}") => 1)
 (test (run "{+}") => 0)
 (test (run "{* 5 5}") => 25)
 (test (run "{* 5 5 5 5}") => 625)
-(test (run "{- 10}") => -10)
 (test (run "{*}") => 1)
+(test (run "{- 10}") => -10)
+(test (run "{- 10 5}") => 5)
+(test (run "{- 10 5 3 1}") => 1)
+(test (run "{-}") =error> "parse-sexpr: bad syntax in (-)")
 (test (run "{/ 5 6}") => 5/6)
 (test (run "{/ 20 5 2}") => 2)
 (test (run "{/ 20}") => 20)
+(test (run "{/ 720 2 3 4 5 6}") => 1)
 (test (run "{/ 20 0}") =error> "Division by zero")
+(test (run "{/}") =error> "parse-sexpr: bad syntax in (/)")
 (test (run "{with {x {+ 5 5}} {+ x x}}") => 20)
 (test (run "{with {x {* 5 6}} {* x x}}") => 900)
 (test (run "{with {x {/ 20 10}} {/ x x}}") => 1)
@@ -262,38 +261,50 @@
 (test (run "{with {5 5} {with {x x} x}}") =error>
       "parse-sexpr: bad `with' syntax in (with (5 5) (with (x x) x))")
 
-;; Relational operators
 (test (run "{< 3 5}") => #t)
 (test (run "{= 5 5}") => #t)
 (test (run "{<= 5 5}") => #t)
+(test (run "{< {+ 4 6} 5}") => #f)
+(test (run "{< {+ 4 6} {- 100 5}}") => #t)
+(test (run "{< {+ 4 6} {- 100 {* 10 2}}}") => #t)
+(test (run "{< {+ 4 6} {- 100 {* {/ 40 4} 2}}}") => #t)
+(test (run "{= {+ 4 6} 5}") => #f)
+(test (run "{= {+ 40 60} {- 120 20}}") => #t)
+(test (run "{= {+ 40 60} {- 120 {* 10 2}}}") => #t)
+(test (run "{= {+ 40 60} {- 120 {* {/ 40 4} 2}}}") => #t)
+(test (run "{<= {+ 4 6} 5}") => #f)
+(test (run "{<= {+ 40 60} {- 140 20}}") => #t)
+(test (run "{<= {+ 40 60} {- 140 {* 10 2}}}") => #t)
+(test (run "{<= {+ 40 60} {- 140 {* {/ 40 4} 2}}}") => #t)
 
-;; Booleans
 (test (run "True") => #t)
 (test (run "False") => #f)
 ;;
-;; if expressions
 (test (run "{if True 4 5}") => 4)
 (test (run "{if False 4 5}") => 5)
 (test (run "{if {< 2 3} {+ 1 2} {* 3 4}}") => 3)
 
-;; ;; Error: non-boolean condition
 (test (run "{if 5 1 2}") =error>
       "eval-boolean: need a boolean when evaluating (Num 5), but got 5")
 
 (test (run "{< True False}") =error>
       "eval-number: need a number when evaluating (Bool #t), but got #t")
-;;
-;; ;; Error: invalid relational operator arguments
+
 (test (run "{< 1}") =error> "bad syntax in (< 1)")
+(test (run "{<= 1}") =error> "bad syntax in (<= 1)")
+(test (run "{< True 4}") =error>
+      "eval-number: need a number when evaluating (Bool #t), but got #t")
+(test (run "{<= True 4}") =error>
+      "eval-number: need a number when evaluating (Bool #t), but got #t")
+(test (run "{= 4 False}") =error>
+      "eval-number: need a number when evaluating (Bool #f), but got #f")
 (test (run "{= 1 2 3}") =error> "bad syntax in (= 1 2 3)")
 
-;; Using with and If together:
 (test (run "{with {x True} {if x 5 10}}") => 5)
 (test (run "{with {x False} {if x 5 10}}") => 10)
 (test (run "{with {x 3} {if {< x 5} 1 0}}") => 1)
 (test (run "{with {y 10}
-            {if {= y 10} {with {z 5} {+ z y}} {with {z 2} {* z y}}}}")
-            => 15)
+            {if {= y 10} {with {z 5} {+ z y}} {with {z 2} {* z y}}}}") => 15)
 (test (run "{with {a 4} {+ a {if {<= a 5} 1 -1}}}") => 5)
 (test (run "{with {x 5} {if x 1 2}}") =error>
       "eval-boolean: need a boolean when evaluating (Num 5), but got 5")
@@ -302,6 +313,7 @@
             {with {b {if {= a 7} {+ 1 2} {* 3 4}}} {/ b 2}}}") => 3/2)
 (test (run "{with {flag False} {if flag {+ 1 2} {* 3 4}}}") => 12)
 (test (run "{with {x 5} {if True y 10}}") =error> "eval: free identifier: y")
+(test (run "{if {with {x 5} {< x 10}} 25 30}") => 25)
 
 
 (test (run "{not True}") => #f)
@@ -312,6 +324,18 @@
 (test (run "{or False True}") => #t)
 (test (run "{or False False}") => #f)
 (test (run "{or True 5}") => #t)
+(test (run "{if {and {< 5 10} {<= 7 20}} {+ 5 5 5 5} {- 4 4 4}}") => 20)
+(test (run "{if {or {< 5 10} {<= 70 20}} {+ 5 5 5 5} {- 4 4 4}}") => 20)
+(test (run "{if {not {< 5 10}} {+ 5 5 5 5} {- 4 4 4}}") => -4)
+(test (run "{if {and {with {x 5} {< x 10}} {<= 7 20}}
+                {+ 5 5 5 5}
+                {- 4 4 4}}") => 20)
+(test (run "{if {or {with {x 5} {< x 1}} {<= 7 20}}
+                {+ 5 5 5 5}
+                {- 4 4 4}}") => 20)
+(test (run "{if {not {with {x 5} {< x 1}}}
+                {+ 5 5 5 5}
+                {- 4 4 4}}") => 20)
 
 (test (run "{and 1 True}") =error>
       "eval-boolean: need a boolean when evaluating (Num 1), but got 1")
@@ -326,6 +350,5 @@
       "eval-boolean: need a boolean when evaluating (Num 5), but got 5")
 (test (run "{or 5 False}") =error>
       "eval-boolean: need a boolean when evaluating (Num 5), but got 5")
-;; TODO add more tests
 
 (define minutes-spent 300)
