@@ -178,17 +178,7 @@
 ;; converts a value to an ALGAE value (so it can be used with `subst')
 (define (value->algae val)
   (cond [(number? val) (Num val)]
-        [(boolean? val) (Bool val)]
-        ;; Note: a `cond' doesn't make much sense now, but it will when
-        ;; we extend the language with booleans.  Also, since we use
-        ;; Typed Racket, the type checker makes sure that this function
-        ;; is never called with something that is not in its type, so
-        ;; there's no need for an `else' branch like
-        ;;     [else (error 'value->algae "unexpected value: ~s" val)]
-        ;; (Strictly speaking, there's no need for the last predicate
-        ;; (which is the only one here until you extend this), but it's
-        ;; left in for clarity.)
-        #|... more code should be here ...|#))
+        [(boolean? val) (Bool val)]))
 
 (: eval : ALGAE -> (U Number Boolean))
 ;; evaluates ALGAE expressions by reducing them to numbers
