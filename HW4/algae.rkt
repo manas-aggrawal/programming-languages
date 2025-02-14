@@ -235,9 +235,17 @@
 (test (run "{/ 720 2 3 4 5 6}") => 1)
 (test (run "{/ 20 0}") =error> "Division by zero")
 (test (run "{/}") =error> "parse-sexpr: bad syntax in (/)")
+(test (run "{+ {+ 5 5 6} {- 2 {/ 20 10}} {* 2 4 5}}") => 56)
+(test (run "{* {- 5 5 6} {- 2 {+ 20 10}} {/ 30 2 3}}") => 840)
+
+;; tests using with
 (test (run "{with {x {+ 5 5}} {+ x x}}") => 20)
+(test (run "{with {x {+ 5 5}} {+ x x x x x x x}}") => 70)
+(test (run "{with {x {- 10 5}} {- x x x x x x x}}") => -25)
 (test (run "{with {x {* 5 6}} {* x x}}") => 900)
+(test (run "{with {x {* 4 5}} {* x x x x x}}") => 3200000)
 (test (run "{with {x {/ 20 10}} {/ x x}}") => 1)
+(test (run "{with {x {/ 20 10}} {/ 20000 x x x x x}}") => 625)
 (test (run "{with {x 5} {+ x x}}") => 10)
 (test (run "{with {x {+ 5 5}} {with {y {- x 3}} {+ y y}}}") => 14)
 (test (run "{with {x 5} {with {y {- x 3}} {+ y y}}}") => 4)
@@ -251,6 +259,7 @@
 (test (run "{with {5 5} {with {x x} x}}") =error>
       "parse-sexpr: bad `with' syntax in (with (5 5) (with (x x) x))")
 
+;; tests for less, lesseq and equal
 (test (run "{< 3 5}") => #t)
 (test (run "{= 5 5}") => #t)
 (test (run "{<= 5 5}") => #t)
@@ -266,20 +275,6 @@
 (test (run "{<= {+ 40 60} {- 140 20}}") => #t)
 (test (run "{<= {+ 40 60} {- 140 {* 10 2}}}") => #t)
 (test (run "{<= {+ 40 60} {- 140 {* {/ 40 4} 2}}}") => #t)
-
-(test (run "True") => #t)
-(test (run "False") => #f)
-;;
-(test (run "{if True 4 5}") => 4)
-(test (run "{if False 4 5}") => 5)
-(test (run "{if {< 2 3} {+ 1 2} {* 3 4}}") => 3)
-
-(test (run "{if 5 1 2}") =error>
-      "eval-boolean: need a boolean when evaluating (Num 5), but got 5")
-
-(test (run "{< True False}") =error>
-      "eval-number: need a number when evaluating (Bool #t), but got #t")
-
 (test (run "{< 1}") =error> "bad syntax in (< 1)")
 (test (run "{<= 1}") =error> "bad syntax in (<= 1)")
 (test (run "{< True 4}") =error>
@@ -290,6 +285,23 @@
       "eval-number: need a number when evaluating (Bool #f), but got #f")
 (test (run "{= 1 2 3}") =error> "bad syntax in (= 1 2 3)")
 
+;; tests for bool operator
+(test (run "True") => #t)
+(test (run "False") => #f)
+(test (run "{< True False}") =error>
+      "eval-number: need a number when evaluating (Bool #t), but got #t")
+
+;; tests for if
+(test (run "{if True 4 5}") => 4)
+(test (run "{if False 4 5}") => 5)
+(test (run "{if {< 2 3} {+ 1 2} {* 3 4}}") => 3)
+(test (run "{if {< {+ 7 8 9} {* 2 2 2}} {+ 1 2} {* 3 4}}") => 12)
+(test (run "{if {< {if {<= 5 5} 2 4} 3} {+ 1 2} {* 3 4}}") => 3)
+
+(test (run "{if 5 1 2}") =error>
+      "eval-boolean: need a boolean when evaluating (Num 5), but got 5")
+
+;; tests using with and if
 (test (run "{with {x True} {if x 5 10}}") => 5)
 (test (run "{with {x False} {if x 5 10}}") => 10)
 (test (run "{with {x 3} {if {< x 5} 1 0}}") => 1)
@@ -305,11 +317,21 @@
 (test (run "{with {x 5} {if True y 10}}") =error> "eval: free identifier: y")
 (test (run "{if {with {x 5} {< x 10}} 25 30}") => 25)
 
-
+;; tests for NOT, AND and OR 
 (test (run "{not True}") => #f)
 (test (run "{not False}") => #t)
 (test (run "{and True True}") => #t)
 (test (run "{and True False}") => #f)
+(test (run "{and {or False True} False}") => #f)
+(test (run "{and {or False True} True}") => #t)
+(test (run "{and {or False True} {not False}}") => #t)
+(test (run "{or {and False True} {not False}}") => #t)
+(test (run "{not {and {or False False} True}}") => #t)
+(test (run "{and {< 2 3} True}") => #t)
+(test (run "{and {<= 200 200} True}") => #t)
+(test (run "{or {<= 200 200} False}") => #t)
+(test (run "{or {< 200 300} False}") => #t)
+(test (run "{or {< 2000 300} False}") => #f)
 (test (run "{or True False}") => #t)
 (test (run "{or False True}") => #t)
 (test (run "{or False False}") => #f)

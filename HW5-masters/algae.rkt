@@ -1,8 +1,11 @@
 #lang pl 05
 
 #| BNF for the ALGAE language:
+<<<<<<< HEAD
      <PROGRAM> ::= { program <FUN> ... }
      <FUN>     ::= { fun <id> { <id> } <ALGAE> }
+=======
+>>>>>>> main
      <ALGAE> ::= <num>
                | { + <ALGAE> ... }
                | { * <ALGAE> ... }
