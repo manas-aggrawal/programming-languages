@@ -1,6 +1,8 @@
 #lang pl 05
 
 #| BNF for the ALGAE language:
+     <PROGRAM> ::= { program <FUN> ... }
+     <FUN>     ::= { fun <id> { <id> } <ALGAE> }
      <ALGAE> ::= <num>
                | { + <ALGAE> ... }
                | { * <ALGAE> ... }
@@ -17,7 +19,15 @@
                | { not <ALGAE> }
                | { and <ALGAE> ... }
                | { or <ALGAE> ... }
+               | { call <id> <ALGAE> }
 |#
+
+;; Updated type definitions for program structure
+(define-type PROGRAM
+  [Funs (funs : (Listof FUN))])
+
+(define-type FUN
+  [Fun (name : Symbol) (arg : Symbol) (body : ALGAE)])
 
 ;; ALGAE abstract syntax trees
 (define-type ALGAE
@@ -34,12 +44,26 @@
   [LessEq ALGAE ALGAE]
   [If     ALGAE ALGAE ALGAE])
 
-(: parse-sexpr : Sexpr -> ALGAE)
+;; parses s-expressions into PROGRAMs
+(: parse-program : Sexpr -> PROGRAM)
+(define (parse-program sexpr)
+  (match sexpr
+    [(list 'program . funs) (Funs (map parse-fun funs))]
+    [_ (error "Invalid program syntax")]))  
+
+;; parses s-expressions into FUNs
+(: parse-fun : Sexpr -> FUN)
+(define (parse-fun sexpr)
+  (match sexpr
+    [(list 'fun name (list arg) body) (Fun name arg (parse-expr body))]
+    [_ (error "Invalid function syntax")]))
+
+(: parse-expr : Sexpr -> ALGAE)
 ;; parses s-expressions into ALGAEs
-(define (parse-sexpr sexpr)
+(define (parse-expr sexpr)
   ;; utility for parsing a list of expressions
   (: parse-sexprs : (Listof Sexpr) -> (Listof ALGAE))
-  (define (parse-sexprs sexprs) (map parse-sexpr sexprs))
+  (define (parse-sexprs sexprs) (map parse-expr sexprs))
   (match sexpr
     [(number: n)    (Num n)]
     ['True          (Bool #t)] ; \ check these before the next
@@ -48,21 +72,28 @@
     [(cons 'with more)
      (match sexpr
        [(list 'with (list (symbol: name) named) body)
-        (With name (parse-sexpr named) (parse-sexpr body))]
-       [else (error 'parse-sexpr "bad `with' syntax in ~s" sexpr)])]
+        (With name (parse-expr named) (parse-expr body))]
+       [else (error parse-expr "bad `with' syntax in ~s" sexpr)])]
     [(list '+ args ...)     (Add (parse-sexprs args))]
     [(list '* args ...)     (Mul (parse-sexprs args))]
-    [(list '- fst args ...) (Sub (parse-sexpr fst) (parse-sexprs args))]
-    [(list '/ fst args ...) (Div (parse-sexpr fst) (parse-sexprs args))]
-    [(list '<  lhs rhs)     (Less   (parse-sexpr lhs) (parse-sexpr rhs))]
-    [(list '=  lhs rhs)     (Equal  (parse-sexpr lhs) (parse-sexpr rhs))]
-    [(list '<= lhs rhs)     (LessEq (parse-sexpr lhs) (parse-sexpr rhs))]
+    [(list '- fst args ...) (Sub (parse-expr fst) (parse-sexprs args))]
+    [(list '/ fst args ...) (Div (parse-expr fst) (parse-sexprs args))]
+    [(list '<  lhs rhs)     (Less   (parse-expr lhs) (parse-expr rhs))]
+    [(list '=  lhs rhs)     (Equal  (parse-expr lhs) (parse-expr rhs))]
+    [(list '<= lhs rhs)     (LessEq (parse-expr lhs) (parse-expr rhs))]
     [(list 'if cond then else)
-     (If (parse-sexpr cond) (parse-sexpr then) (parse-sexpr else))]
+     (If (parse-expr cond) (parse-expr then) (parse-expr else))]
     [(list 'and args ...) (And (parse-sexprs args))]
     [(list 'or args ...) (Or  (parse-sexprs args))]
-    [(list 'not arg)     (Not (parse-sexpr arg))]
-    [else (error 'parse-sexpr "bad syntax in ~s" sexpr)]))
+    [(list 'not arg)     (Not (parse-expr arg))]
+    [else (error 'parse-expr "bad syntax in ~s" sexpr)]))
+
+(: lookup-fun : Symbol PROGRAM -> FUN)
+;; Looks up a FUN instance in a PROGRAM given its name
+(define (lookup-fun name prog)
+  (or (ormap (lambda (fun) (if (symbol=? (Fun-name fun) name) fun #f))
+             (Funs-funs prog)) ;; Extract function list from PROGRAM
+      (error "Function not found: " name)))
 
 (: Not : ALGAE -> ALGAE)
 ;; Translates `{not E}' syntax to core Algae.
@@ -85,29 +116,10 @@
     [(list e) e]
     [(cons e es) (If e (Bool #t) (Or es))]))
 
-(: parse : String -> ALGAE)
+(: parse : String -> PROGRAM)
 ;; parses a string containing an ALGAE expression to an ALGAE AST
 (define (parse str)
-  (parse-sexpr (string->sexpr str)))
-
-#| Formal specs for `subst':
-   (`N' is a <num>, `B' is True/False, `E1', `E2' are <ALGAE>s, `x' is
-   some <id>, `y' is a *different* <id>)
-      N[v/x]                = N
-      B[v/x]                = B
-      {+ E ...}[v/x]        = {+ E[v/x] ...}
-      {* E ...}[v/x]        = {* E[v/x] ...}
-      {- E1 E ...}[v/x]     = {- E1[v/x] E[v/x] ...}
-      {/ E1 E ...}[v/x]     = {/ E1[v/x] E[v/x] ...}
-      y[v/x]                = y
-      x[v/x]                = v
-      {with {y E1} E2}[v/x] = {with {y E1[v/x]} E2[v/x]}
-      {with {x E1} E2}[v/x] = {with {x E1[v/x]} E2}
-      {<  E1 E2}[v/x]       = {<  E1[v/x] E2[v/x]}
-      {=  E1 E2}[v/x]       = {=  E1[v/x] E2[v/x]}
-      {<= E1 E2}[v/x]       = {<= E1[v/x] E2[v/x]}
-      {if E1 E2 E3}[v/x]    = {if E1[v/x] E2[v/x] E3[v/x]}
-|#
+  (parse-program (string->sexpr str)))
 
 (: subst : ALGAE Symbol ALGAE -> ALGAE)
 ;; substitutes the second argument with the third argument in the
@@ -139,29 +151,6 @@
     [(LessEq lhs rhs) (LessEq (subst* lhs) (subst* rhs))]
     [(If cond then else)
      (If (subst* cond) (subst* then) (subst* else))]))
-
-#| Formal specs for `eval':
-     eval(N)             = N
-     eval(B)             = B
-     eval({+ E ...})     = evalN(E) + ...
-     eval({* E ...})     = evalN(E) * ...
-     eval({- E})         = -evalN(E)
-     eval({/ E})         = 1/evalN(E)
-     eval({- E1 E ...})  = evalN(E1) - (evalN(E) + ...)
-     eval({/ E1 E ...})  = evalN(E1) / (evalN(E) * ...)
-     eval(id)            = error!
-     eval({with {x E1} E2}) = eval(E2[eval(E1)/x])
-     eval({< E1 E2})     = evalN(E1) < evalN(E2)
-     eval({= E1 E2})     = evalN(E1) = evalN(E2)
-     eval({<= E1 E2})    = evalN(E1) <= evalN(E2)
-     eval({if E1 E2 E3}) = eval(E2)  if evalB(E1) is true
-                         = eval(E3)  otherwise
-     eval({not E})       = eval({if E False True})
-     eval({and E1 E2})   = eval({if E1 E2 False})
-     eval({or E1 E2})    = eval({if E1 True E2})
-     evalN(E) = eval(E) if it is a number, error otherwise
-     evalB(E) = eval(E) if it is a boolean, error otherwise
-|#
 
 (: eval-number : ALGAE -> Number)
 ;; helper for `eval': verifies that the result is a number

@@ -15,8 +15,8 @@
                | { <= <ALGAE> <ALGAE> }
                | { if <ALGAE> <ALGAE> <ALGAE> }
                | { not <ALGAE> }
-               | { and <ALGAE> <ALGAE> }
-               | { or <ALGAE> <ALGAE> }
+               | { and <ALGAE> ... }
+               | { or <ALGAE> ... }
 |#
 
 ;; ALGAE abstract syntax trees
@@ -59,8 +59,8 @@
     [(list '<= lhs rhs)     (LessEq (parse-sexpr lhs) (parse-sexpr rhs))]
     [(list 'if cond then else)
      (If (parse-sexpr cond) (parse-sexpr then) (parse-sexpr else))]
-    [(list 'and lhs rhs) (And (parse-sexpr lhs) (parse-sexpr rhs))]
-    [(list 'or  lhs rhs) (Or  (parse-sexpr lhs) (parse-sexpr rhs))]
+    [(list 'and args ...) (And (parse-sexprs args))]
+    [(list 'or args ...) (Or  (parse-sexprs args))]
     [(list 'not arg)     (Not (parse-sexpr arg))]
     [else (error 'parse-sexpr "bad syntax in ~s" sexpr)]))
 
@@ -69,15 +69,21 @@
 (define (Not expr)
   (If expr (Bool #f) (Bool #t)))
 
-(: And : ALGAE ALGAE -> ALGAE)
-;; Translates `{and E1 E2}' syntax to core Algae.
-(define (And expr1 expr2)
-  (If expr1 expr2 (Bool #f)))
+(: And : (Listof ALGAE) -> ALGAE)
+;; Translates `{and E1 ...}' syntax to core Algae.
+(define (And expr)
+  (match expr
+    ['() (Bool #t)]
+    [(list e) e]
+    [(cons e es) (If e (And es) (Bool #f))]))
 
-(: Or : ALGAE ALGAE -> ALGAE)
-;; Translates `{or E1 E2}' syntax to core Algae.
-(define (Or expr1 expr2)
-  (If expr1 (Bool #t) expr2))
+(: Or : (Listof ALGAE) -> ALGAE)
+;; Translates `{or E1 ...}' syntax to core Algae.
+(define (Or expr)
+  (match expr
+    ['() (Bool #f)]
+    [(list e) e]
+    [(cons e es) (If e (Bool #t) (Or es))]))
 
 (: parse : String -> ALGAE)
 ;; parses a string containing an ALGAE expression to an ALGAE AST
@@ -292,3 +298,14 @@
 (test (run "{or {< 1 2} {/ 1 0}}"))
 (test (run "{not {and {/ 1 0} {< 2 1}}}") =error> "division by zero")
 (test (run "{not {and {< 2 1} {/ 1 0}}}"))
+
+;; new tests for modified And and Or
+;;(test (run "{and}") => #t)  ; No arguments
+;;(test (run "{or}") => #f)
+;;(test (run "{and True False}") => #f)
+;;(test (run "{or False True}") => #t)
+;;(test (run "{and True True True}") => #f)
+;;(test (run "{or False False True}") => #t)
+;;(test (run "{and False {error}}") => #f) ; Short-circuiting
+;;(test (run "{or True {error}}") => #f)    ; Short-circuiting
+
