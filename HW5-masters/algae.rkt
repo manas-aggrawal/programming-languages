@@ -26,6 +26,7 @@
 (define-type PROGRAM
   [Funs (funs : (Listof FUN))])
 
+;; type definition for FUN
 (define-type FUN
   [Fun (name : Symbol) (arg : Symbol) (body : ALGAE)])
 
@@ -48,8 +49,8 @@
 (: parse-program : Sexpr -> PROGRAM)
 (define (parse-program sexpr)
   (match sexpr
-    [(list 'program . funs) (Funs (map parse-fun funs))]
-    [_ (error "Invalid program syntax")]))  
+  [(cons 'program funs) (Funs (map parse-fun funs))]
+  [_ (error "Invalid program syntax")]))  
 
 ;; parses s-expressions into FUNs
 (: parse-fun : Sexpr -> FUN)
@@ -89,11 +90,17 @@
     [else (error 'parse-expr "bad syntax in ~s" sexpr)]))
 
 (: lookup-fun : Symbol PROGRAM -> FUN)
-;; Looks up a FUN instance in a PROGRAM given its name
+;; Looks up a FUN instance in a PROGRAM from its name
 (define (lookup-fun name prog)
-  (or (ormap (lambda (fun) (if (symbol=? (Fun-name fun) name) fun #f))
-             (Funs-funs prog)) ;; Extract function list from PROGRAM
-      (error "Function not found: " name)))
+  (match prog
+    [(Funs fun-list)
+     (define found (ormap (lambda (fun) 
+                            (when (symbol=? (match fun [(Fun n _ _) n])) name)) 
+                          fun-list))
+     (cond
+       [(some? found) (first found)]
+       [else (error "Function not found: " name)])]))
+
 
 (: Not : ALGAE -> ALGAE)
 ;; Translates `{not E}' syntax to core Algae.
@@ -101,20 +108,20 @@
   (If expr (Bool #f) (Bool #t)))
 
 (: And : (Listof ALGAE) -> ALGAE)
-;; Translates `{and E1 ...}' syntax to core Algae.
+;; Translates `{and E1}' syntax to core Algae.
 (define (And expr)
   (match expr
     ['() (Bool #t)]
-    [(list e) e]
-    [(cons e es) (If e (And es) (Bool #f))]))
+    [(list exp) exp]
+    [(cons exp exps) (If exp (And exps) (Bool #f))]))
 
 (: Or : (Listof ALGAE) -> ALGAE)
-;; Translates `{or E1 ...}' syntax to core Algae.
+;; Translates `{or E1}' syntax to core Algae.
 (define (Or expr)
   (match expr
     ['() (Bool #f)]
-    [(list e) e]
-    [(cons e es) (If e (Bool #t) (Or es))]))
+    [(list exp) exp]
+    [(cons exp exps) (If exp (Bool #t) (Or exps))]))
 
 (: parse : String -> PROGRAM)
 ;; parses a string containing an ALGAE expression to an ALGAE AST
@@ -289,12 +296,12 @@
 (test (run "{not {and {< 2 1} {/ 1 0}}}"))
 
 ;; new tests for modified And and Or
-;;(test (run "{and}") => #t)  ; No arguments
-;;(test (run "{or}") => #f)
-;;(test (run "{and True False}") => #f)
-;;(test (run "{or False True}") => #t)
-;;(test (run "{and True True True}") => #f)
-;;(test (run "{or False False True}") => #t)
-;;(test (run "{and False {error}}") => #f) ; Short-circuiting
-;;(test (run "{or True {error}}") => #f)    ; Short-circuiting
+(test (run "{and}") => #t)
+(test (run "{or}") => #f)
+(test (run "{and True False}") => #f)
+(test (run "{or False True}") => #t)
+(test (run "{and True True True}") => #f)
+(test (run "{or False False True}") => #t)
+(test (run "{and False {error}}") => #f) ; Short-circuiting
+(test (run "{or True {error}}") => #f)    ; Short-circuiting
 
