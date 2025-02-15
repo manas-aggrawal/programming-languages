@@ -62,7 +62,8 @@
 (: parse-fun : Sexpr -> FUN)
 (define (parse-fun sexpr)
   (match sexpr
-    [(list 'fun (symbol: name) (list (symbol: arg)) body) (Fun name arg (parse-expr body))]
+    [(list 'fun (symbol: name) (list (symbol: arg)) body)
+     (Fun name arg (parse-expr body))]
     [_ (error 'parse-fun "Invalid function syntax")]))
 
 (: parse-expr : Sexpr -> ALGAE)
@@ -81,30 +82,32 @@
        [(list 'with (list (symbol: name) named) body)
         (With name (parse-expr named) (parse-expr body))]
        [else (error parse-expr "bad `with' syntax in ~s" sexpr)])]
-    [(list '+ args ...)              (Add (parse-sexprs args))]
-    [(list '* args ...)              (Mul (parse-sexprs args))]
-    [(list '- fst args ...)          (Sub (parse-expr fst) (parse-sexprs args))]
-    [(list '/ fst args ...)          (Div (parse-expr fst) (parse-sexprs args))]
-    [(list '<  lhs rhs)              (Less   (parse-expr lhs) (parse-expr rhs))]
-    [(list '=  lhs rhs)              (Equal  (parse-expr lhs) (parse-expr rhs))]
-    [(list '<= lhs rhs)              (LessEq (parse-expr lhs) (parse-expr rhs))]
+    [(list '+ args ...)             (Add (parse-sexprs args))]
+    [(list '* args ...)             (Mul (parse-sexprs args))]
+    [(list '- fst args ...)         (Sub (parse-expr fst) (parse-sexprs args))]
+    [(list '/ fst args ...)         (Div (parse-expr fst) (parse-sexprs args))]
+    [(list '<  lhs rhs)             (Less   (parse-expr lhs) (parse-expr rhs))]
+    [(list '=  lhs rhs)             (Equal  (parse-expr lhs) (parse-expr rhs))]
+    [(list '<= lhs rhs)             (LessEq (parse-expr lhs) (parse-expr rhs))]
     [(list 'if cond then else)
-     (If (parse-expr cond)           (parse-expr then) (parse-expr else))]
-    [(list 'and args ...)            (And (parse-sexprs args))]
-    [(list 'or args ...)             (Or  (parse-sexprs args))]
+     (If (parse-expr cond)          (parse-expr then) (parse-expr else))]
+    [(list 'and args ...)           (And (parse-sexprs args))]
+    [(list 'or args ...)            (Or  (parse-sexprs args))]
     [(list 'not arg)                 (Not (parse-expr arg))]
     [(list 'quote (symbol: name))    (Quote name)]
     [(list 'call (symbol: name) arg) (Call name (parse-expr arg))]
-    [(list 'vcall fval arg)          (VCall (parse-expr fval) (parse-expr arg))]
+    [(list 'vcall fval arg)         (VCall (parse-expr fval) (parse-expr arg))]
     [else (error 'parse-expr "bad syntax in ~s" sexpr)]))
 
 (: lookup-fun : Symbol PROGRAM -> FUN)
 ; Looks up a FUN instance in a PROGRAM given its name
 (define (lookup-fun name prog)
   (or (ormap (lambda ([fun : FUN])
-              (cases fun [(Fun fun-name arg expr) (if (eq? name fun-name) fun #f)]))
-     (cases prog [(Funs funs) funs]))
-     (error 'lookup-fun "Function not found: ~s " name)))
+               (cases fun
+                      [(Fun fun-name arg expr)
+                       (if (eq? name fun-name) fun #f)]))
+             (cases prog [(Funs funs) funs]))
+      (error 'lookup-fun "Function not found: ~s " name)))
 
 (: Not : ALGAE -> ALGAE)
 ;; Translates `{not E}' syntax to core Algae.
@@ -349,8 +352,10 @@
 
 
 (test (run "{program {fun main {n} {+ n 5}}}" 5) => 10)
-(test (run "{program {fun main {n} {call foo n}} {fun foo {n} {+ n 5}}}" 5) => 10)
-(test (run "{program {fun main {n} {call foo n}} {fun foo {n} {+ n 5}}}" 5) => 10)
+(test (run "{program {fun main {n} {call foo n}} {fun foo {n} {+ n 5}}}" 5)
+      => 10)
+(test (run "{program {fun main {n} {call foo n}} {fun foo {n} {+ n 5}}}" 5)
+      => 10)
 (test (run "{program
   {fun even? {n}
     {if {= 0 n} True {call odd? {- n 1}}}}
@@ -412,3 +417,12 @@
                           {quote do_even}
                           {quote do_odd}}
                         n}}}}}}" 50) => 25)
+
+;; (test (run "{program {fun main {n} {vcall {if True}
+;;                                             {quote 500}
+;;                                             {quote foo} n}}
+;;                      {fun foo {n} {+ n 100}}}" 10)
+;;        =error>
+;;        "parse-expr: bad syntax in (vcall (if True) (quote 500) (quote foo) n)")
+
+(define minutes-spent 300)
