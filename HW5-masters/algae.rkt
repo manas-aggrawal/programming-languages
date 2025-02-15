@@ -27,7 +27,7 @@
 
 ;; type definition for FUN
 (define-type FUN
-  [Fun Symbol Symbol ALGAE]) ;; TODO Verify types
+  [Fun Symbol Symbol ALGAE])
 ;; (Fun 'main 'n (Add (list (Id 'n) (Num 1))
 
 ;; ALGAE abstract syntax trees
@@ -95,9 +95,9 @@
 ; Looks up a FUN instance in a PROGRAM given its name
 (define (lookup-fun name prog)
   (or (ormap (lambda ([fun : FUN])
-              (cases fun [(Fun fun-name arg expr) (if (eq? name fun-name) fun #f)]))
-     (cases prog [(Funs funs) funs]))
-     (error 'lookup-fun "Function not found: ~s " name)))
+               (cases fun [(Fun fun-name arg expr) (if (eq? name fun-name) fun #f)]))
+             (cases prog [(Funs funs) funs]))
+      (error 'lookup-fun "Function not found: ~s " name)))
 
 (: Not : ALGAE -> ALGAE)
 ;; Translates `{not E}' syntax to core Algae.
@@ -148,8 +148,8 @@
      (With bound-id
            (subst* named-expr)
            (if (eq? bound-id from)
-             bound-body
-             (subst* bound-body)))]
+               bound-body
+               (subst* bound-body)))]
     [(Less   lhs rhs) (Less   (subst* lhs) (subst* rhs))]
     [(Equal  lhs rhs) (Equal  (subst* lhs) (subst* rhs))]
     [(LessEq lhs rhs) (LessEq (subst* lhs) (subst* rhs))]
@@ -162,20 +162,20 @@
 (define (eval-number expr prog)
   (let ([result (eval expr prog)])
     (if (number? result)
-      result
-      (error 'eval-number
-             "need a number when evaluating ~s, but got ~s"
-             expr result))))
+        result
+        (error 'eval-number
+               "need a number when evaluating ~s, but got ~s"
+               expr result))))
 
 (: eval-boolean : ALGAE PROGRAM -> Boolean)
 ;; helper for `eval': verifies that the result is a boolean
 (define (eval-boolean expr prog)
   (let ([result (eval expr prog)])
     (if (boolean? result)
-      result
-      (error 'eval-boolean
-             "need a boolean when evaluating ~s, but got ~s"
-             expr result))))
+        result
+        (error 'eval-boolean
+               "need a boolean when evaluating ~s, but got ~s"
+               expr result))))
 
 (: value->algae : (U Number Boolean) -> ALGAE)
 ;; converts a value to an ALGAE value (so it can be used with `subst')
@@ -190,42 +190,42 @@
   (let ([eval (lambda ([e : ALGAE]) (eval e prog))]
         [eval-number (lambda ([e : ALGAE]) (eval-number e prog))]
         [eval-boolean (lambda ([e : ALGAE]) (eval-boolean e prog))])
-  ;; convenient helper
-  (: fold-evals : (Number Number -> Number) Number (Listof ALGAE)
-                  -> Number)
-  (define (fold-evals f init exprs)
-    (foldl f init (map eval-number exprs)))
-  (cases expr
-    [(Num  n) n]
-    [(Bool b) b]
-    [(Add args) (fold-evals + 0 args)]
-    [(Mul args) (fold-evals * 1 args)]
-    [(Sub fst args)
-     (let ([x (eval-number fst)])  ; need to evaluate in both cases
-       (if (null? args) (- x) (- x (fold-evals + 0 args))))]
-    [(Div fst args)
-     (let ([x   (eval-number fst)] ; need to evaluate in both cases
-           [div (fold-evals * 1 args)])
-       (cond [(zero? (if (null? args) x div))
-              (error '/ "division by zero error")]
-             [(null? args) (/ x)]
-             [else         (/ x div)]))]
-    [(With bound-id named-expr bound-body)
-     (eval (subst bound-body
-                  bound-id
-                  ;; see the above `value->algae' helper
-                  (value->algae (eval named-expr))))]
-    [(Id name) (error 'eval "free identifier: ~s" name)]
-    [(Less   lhs rhs) (<  (eval-number lhs) (eval-number rhs))]
-    [(Equal  lhs rhs) (=  (eval-number lhs) (eval-number rhs))]
-    [(LessEq lhs rhs) (<= (eval-number lhs) (eval-number rhs))]
-    [(Call name arg)
-     (let ([fun (lookup-fun name prog)])
-       (cases fun
-              [(Fun name bound-id bound-body)
-               (eval (subst bound-body bound-id (value->algae (eval arg))))]))]
-               ;; (error 'expr "NAME: ~s BOUND-ID: ~s BOUND-BODY: ~s" name bound-id bound-body) ]))]
-    [(If cond then else) (eval (if (eval-boolean cond) then else))])))
+    ;; convenient helper
+    (: fold-evals : (Number Number -> Number) Number (Listof ALGAE)
+       -> Number)
+    (define (fold-evals f init exprs)
+      (foldl f init (map eval-number exprs)))
+    (cases expr
+      [(Num  n) n]
+      [(Bool b) b]
+      [(Add args) (fold-evals + 0 args)]
+      [(Mul args) (fold-evals * 1 args)]
+      [(Sub fst args)
+       (let ([x (eval-number fst)])  ; need to evaluate in both cases
+         (if (null? args) (- x) (- x (fold-evals + 0 args))))]
+      [(Div fst args)
+       (let ([x   (eval-number fst)] ; need to evaluate in both cases
+             [div (fold-evals * 1 args)])
+         (cond [(zero? (if (null? args) x div))
+                (error '/ "division by zero error")]
+               [(null? args) (/ x)]
+               [else         (/ x div)]))]
+      [(With bound-id named-expr bound-body)
+       (eval (subst bound-body
+                    bound-id
+                    ;; see the above `value->algae' helper
+                    (value->algae (eval named-expr))))]
+      [(Id name) (error 'eval "free identifier: ~s" name)]
+      [(Less   lhs rhs) (<  (eval-number lhs) (eval-number rhs))]
+      [(Equal  lhs rhs) (=  (eval-number lhs) (eval-number rhs))]
+      [(LessEq lhs rhs) (<= (eval-number lhs) (eval-number rhs))]
+      [(Call name arg)
+       (let ([fun (lookup-fun name prog)])
+         (cases fun
+           [(Fun name bound-id bound-body)
+            (eval (subst bound-body bound-id (value->algae (eval arg))))]))]
+      ;; (error 'expr "NAME: ~s BOUND-ID: ~s BOUND-BODY: ~s" name bound-id bound-body) ]))]
+      [(If cond then else) (eval (if (eval-boolean cond) then else))])))
 
 (: run : String (U Number Boolean) -> (U Number Boolean))
 ;; evaluate a complete ALGAE program contained in a string,
@@ -325,6 +325,7 @@
 (test (run "{program {fun main {n} {+ n 5}}}" 5) => 10)
 (test (run "{program {fun main {n} {call foo n}} {fun foo {n} {+ n 5}}}" 5) => 10)
 (test (run "{program {fun main {n} {call foo n}} {fun foo {n} {+ n 5}}}" 5) => 10)
+
 (test (run "{program
   {fun even? {n}
     {if {= 0 n} True {call odd? {- n 1}}}}
@@ -350,3 +351,48 @@
                  {if {call even? n}
                    {/ n 2}
                    {+ 1 {* n 3}}}}}}}}" 50) => 25)
+
+;; fibonacci test case
+(test (run "{program
+    {fun fib {n}
+      {if {<= n 1} n {+ {call fib {- n 1}} {call fib {- n 2}}}}}
+    {fun main {n}
+      {call fib n}}}" 6) => 8)
+
+;; factorial test case
+(test (run "{program
+    {fun factorial {n}
+      {if {<= n 0} 1 { * n {call factorial {- n 1}}}}}
+    {fun main {n}
+      {call factorial n}}}" 5) => 120)
+
+;; sum of n numbers
+(test (run "{program
+    {fun sum {n}
+      {if {<= n 0} 0 {+ n {call sum {- n 1}}}}}
+    {fun main {n}
+      {call sum n}}}" 4) => 10)
+
+;; lookup-fun, function not found error
+(test (run "{program
+    {fun sum {n}
+      {if {<= n 0} 0 {+ n {call sum {- n 1}}}}}
+    {fun main {n}
+      {call fact n}}}" 4) =error> "lookup-fun: Function not found: fact")
+
+;; invalid function syntax error
+(test (run "{program
+    {fun sum
+      {if {<= n 0} 0 {+ n {call sum {- n 1}}}}}
+    {fun main {n}
+      {call sum n}}}" 4) =error> "parse-fun: Invalid function syntax")
+
+;; function not found error
+(test (run "{program
+    {fun main {n}
+      {call sum n}}}" 4) =error> "lookup-fun: Function not found: sum ")
+
+;; invalid program syntax
+(test (run "{prog
+    {fun main {n}
+      {call sum n}}}" 4) =error> "parse-program: Invalid program syntax")
