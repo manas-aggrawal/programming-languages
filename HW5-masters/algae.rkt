@@ -20,6 +20,8 @@
                | { and <ALGAE> ... }
                | { or <ALGAE> ... }
                | { call <id> <ALGAE> }
+               | { quote <id> }
+               | { vcall <ALGAE> <ALGAE> }
 |#
 
 ;; Updated type definitions for program structure
@@ -27,8 +29,9 @@
 
 ;; type definition for FUN
 (define-type FUN
-  [Fun Symbol Symbol ALGAE]) ;; TODO Verify types
-;; (Fun 'main 'n (Add (list (Id 'n) (Num 1))
+  [Fun Symbol Symbol ALGAE])
+
+(define-type VAL = (U Boolean Number Symbol))
 
 ;; ALGAE abstract syntax trees
 (define-type ALGAE
@@ -44,7 +47,9 @@
   [Equal  ALGAE ALGAE]
   [LessEq ALGAE ALGAE]
   [If     ALGAE ALGAE ALGAE]
-  [Call   Symbol ALGAE])
+  [Call   Symbol ALGAE]
+  [Quote  Symbol]
+  [VCall  ALGAE ALGAE])
 
 ;; parses s-expressions into PROGRAMs
 (: parse-program : Sexpr -> PROGRAM)
@@ -76,19 +81,21 @@
        [(list 'with (list (symbol: name) named) body)
         (With name (parse-expr named) (parse-expr body))]
        [else (error parse-expr "bad `with' syntax in ~s" sexpr)])]
-    [(list '+ args ...)     (Add (parse-sexprs args))]
-    [(list '* args ...)     (Mul (parse-sexprs args))]
-    [(list '- fst args ...) (Sub (parse-expr fst) (parse-sexprs args))]
-    [(list '/ fst args ...) (Div (parse-expr fst) (parse-sexprs args))]
-    [(list '<  lhs rhs)     (Less   (parse-expr lhs) (parse-expr rhs))]
-    [(list '=  lhs rhs)     (Equal  (parse-expr lhs) (parse-expr rhs))]
-    [(list '<= lhs rhs)     (LessEq (parse-expr lhs) (parse-expr rhs))]
+    [(list '+ args ...)              (Add (parse-sexprs args))]
+    [(list '* args ...)              (Mul (parse-sexprs args))]
+    [(list '- fst args ...)          (Sub (parse-expr fst) (parse-sexprs args))]
+    [(list '/ fst args ...)          (Div (parse-expr fst) (parse-sexprs args))]
+    [(list '<  lhs rhs)              (Less   (parse-expr lhs) (parse-expr rhs))]
+    [(list '=  lhs rhs)              (Equal  (parse-expr lhs) (parse-expr rhs))]
+    [(list '<= lhs rhs)              (LessEq (parse-expr lhs) (parse-expr rhs))]
     [(list 'if cond then else)
-     (If (parse-expr cond) (parse-expr then) (parse-expr else))]
-    [(list 'and args ...) (And (parse-sexprs args))]
-    [(list 'or args ...) (Or  (parse-sexprs args))]
-    [(list 'not arg)     (Not (parse-expr arg))]
+     (If (parse-expr cond)           (parse-expr then) (parse-expr else))]
+    [(list 'and args ...)            (And (parse-sexprs args))]
+    [(list 'or args ...)             (Or  (parse-sexprs args))]
+    [(list 'not arg)                 (Not (parse-expr arg))]
+    [(list 'quote (symbol: name))    (Quote name)]
     [(list 'call (symbol: name) arg) (Call name (parse-expr arg))]
+    [(list 'vcall fval arg)          (VCall (parse-expr fval) (parse-expr arg))]
     [else (error 'parse-expr "bad syntax in ~s" sexpr)]))
 
 (: lookup-fun : Symbol PROGRAM -> FUN)
@@ -153,7 +160,9 @@
     [(Less   lhs rhs) (Less   (subst* lhs) (subst* rhs))]
     [(Equal  lhs rhs) (Equal  (subst* lhs) (subst* rhs))]
     [(LessEq lhs rhs) (LessEq (subst* lhs) (subst* rhs))]
-    [(Call name arg) (Call name (subst* arg))]
+    [(Call name arg)  (Call name (subst* arg))]
+    [(Quote name)     (Quote name)]
+    [(VCall fval arg) (VCall (subst* fval) (subst* arg))]
     [(If cond then else)
      (If (subst* cond) (subst* then) (subst* else))]))
 
@@ -177,19 +186,31 @@
              "need a boolean when evaluating ~s, but got ~s"
              expr result))))
 
-(: value->algae : (U Number Boolean) -> ALGAE)
+(: eval-symbol : ALGAE PROGRAM -> Symbol)
+;; helper for `eval': verifies that the result is a symbol
+(define (eval-symbol expr prog)
+  (let ([result (eval expr prog)])
+    (if (symbol? result)
+      result
+      (error 'eval-symbol
+             "need a symbol when evaluating ~s, but got ~s"
+             expr result))))
+
+(: value->algae : VAL -> ALGAE)
 ;; converts a value to an ALGAE value (so it can be used with `subst')
 (define (value->algae val)
   (cond [(number?  val) (Num val)]
-        [(boolean? val) (Bool val)]))
+        [(boolean? val) (Bool val)]
+        [(symbol? val)  (Quote val)]))
 
-(: eval : ALGAE PROGRAM -> (U Number Boolean))
+(: eval : ALGAE PROGRAM -> VAL)
 ;; evaluates ALGAE expressions by reducing them to numbers or booleans.
 ;; `prog' is provided for function lookup
 (define (eval expr prog)
   (let ([eval (lambda ([e : ALGAE]) (eval e prog))]
         [eval-number (lambda ([e : ALGAE]) (eval-number e prog))]
-        [eval-boolean (lambda ([e : ALGAE]) (eval-boolean e prog))])
+        [eval-boolean (lambda ([e : ALGAE]) (eval-boolean e prog))]
+        [eval-symbol (lambda ([e : ALGAE]) (eval-symbol e prog))])
   ;; convenient helper
   (: fold-evals : (Number Number -> Number) Number (Listof ALGAE)
                   -> Number)
@@ -198,6 +219,7 @@
   (cases expr
     [(Num  n) n]
     [(Bool b) b]
+    [(Quote fval) fval]
     [(Add args) (fold-evals + 0 args)]
     [(Mul args) (fold-evals * 1 args)]
     [(Sub fst args)
@@ -224,17 +246,21 @@
        (cases fun
               [(Fun name bound-id bound-body)
                (eval (subst bound-body bound-id (value->algae (eval arg))))]))]
-               ;; (error 'expr "NAME: ~s BOUND-ID: ~s BOUND-BODY: ~s" name bound-id bound-body) ]))]
+    [(VCall name arg)
+     (let ([fun (lookup-fun (eval-symbol name) prog)])
+       (cases fun
+              [(Fun name bound-id bound-body)
+               (eval (subst bound-body bound-id (value->algae (eval arg))))]))]
     [(If cond then else) (eval (if (eval-boolean cond) then else))])))
 
-(: run : String (U Number Boolean) -> (U Number Boolean))
+(: run : String VAL -> VAL)
 ;; evaluate a complete ALGAE program contained in a string,
 ;; given a value to pass on to the `main' function
 (define (run str arg)
   (let ([prog (parse str)])
     (eval (Call 'main (value->algae arg)) prog)))
 
-(: run* : String -> (U Number Boolean))
+(: run* : String -> VAL)
 ;; a version for testing simple ALGAE expressions without
 ;; function calls
 (define (run* str)
@@ -350,3 +376,39 @@
                  {if {call even? n}
                    {/ n 2}
                    {+ 1 {* n 3}}}}}}}}" 50) => 25)
+
+(test (run "{program
+  {fun even? {n}
+    {if {= 0 n} True {call odd? {- n 1}}}}
+  {fun odd? {n}
+    {if {= 0 n} False {call even? {- n 1}}}}
+  {fun do_even {n}
+    {/ n 2}}
+  {fun do_odd {n}
+    {+ 1 {* n 3}}}
+  {fun main {n}
+    {if {= n 1}
+      1
+      {+ 1 {call main
+                 {vcall {if {call even? n}
+                          {quote do_even}
+                          {quote do_odd}}
+                        n}}}}}}" 100) => 26)
+
+(test (run "{program
+  {fun even? {n}
+    {if {= 0 n} True {call odd? {- n 1}}}}
+  {fun odd? {n}
+    {if {= 0 n} False {call even? {- n 1}}}}
+  {fun do_even {n}
+    {/ n 2}}
+  {fun do_odd {n}
+    {+ 1 {* n 3}}}
+  {fun main {n}
+    {if {= n 1}
+      1
+      {+ 1 {call main
+                 {vcall {if {call even? n}
+                          {quote do_even}
+                          {quote do_odd}}
+                        n}}}}}}" 50) => 25)
