@@ -96,7 +96,8 @@
     [(list 'not arg)                 (Not (parse-expr arg))]
     [(list 'quote (symbol: name))    (Quote name)]
     [(list 'call (symbol: name) arg) (Call name (parse-expr arg))]
-    [(list 'vcall fval arg)         (VCall (parse-expr fval) (parse-expr arg))]
+    [(list 'vcall fname-expr arg)    (VCall (parse-expr fname-expr)
+                                            (parse-expr arg))]
     [else (error 'parse-expr "bad syntax in ~s" sexpr)]))
 
 (: lookup-fun : Symbol PROGRAM -> FUN)
@@ -104,8 +105,8 @@
 (define (lookup-fun name prog)
   (or (ormap (lambda ([fun : FUN])
                (cases fun
-                      [(Fun fun-name arg expr)
-                       (if (eq? name fun-name) fun #f)]))
+                      [(Fun fname arg expr)
+                       (if (eq? name fname) fun #f)]))
              (cases prog [(Funs funs) funs]))
       (error 'lookup-fun "Function not found: ~s " name)))
 
@@ -165,7 +166,7 @@
     [(LessEq lhs rhs) (LessEq (subst* lhs) (subst* rhs))]
     [(Call name arg)  (Call name (subst* arg))]
     [(Quote name)     (Quote name)]
-    [(VCall fval arg) (VCall (subst* fval) (subst* arg))]
+    [(VCall fname-expr arg) (VCall (subst* fname-expr) (subst* arg))]
     [(If cond then else)
      (If (subst* cond) (subst* then) (subst* else))]))
 
@@ -222,7 +223,7 @@
   (cases expr
     [(Num  n) n]
     [(Bool b) b]
-    [(Quote fval) fval]
+    [(Quote fname) fname]
     [(Add args) (fold-evals + 0 args)]
     [(Mul args) (fold-evals * 1 args)]
     [(Sub fst args)
@@ -249,8 +250,8 @@
        (cases fun
               [(Fun name bound-id bound-body)
                (eval (subst bound-body bound-id (value->algae (eval arg))))]))]
-    [(VCall name arg)
-     (let ([fun (lookup-fun (eval-symbol name) prog)])
+    [(VCall fname-expr arg)
+     (let ([fun (lookup-fun (eval-symbol fname-expr) prog)])
        (cases fun
               [(Fun name bound-id bound-body)
                (eval (subst bound-body bound-id (value->algae (eval arg))))]))]
