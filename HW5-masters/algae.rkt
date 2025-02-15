@@ -159,8 +159,8 @@
      (With bound-id
            (subst* named-expr)
            (if (eq? bound-id from)
-             bound-body
-             (subst* bound-body)))]
+               bound-body
+               (subst* bound-body)))]
     [(Less   lhs rhs) (Less   (subst* lhs) (subst* rhs))]
     [(Equal  lhs rhs) (Equal  (subst* lhs) (subst* rhs))]
     [(LessEq lhs rhs) (LessEq (subst* lhs) (subst* rhs))]
@@ -175,20 +175,20 @@
 (define (eval-number expr prog)
   (let ([result (eval expr prog)])
     (if (number? result)
-      result
-      (error 'eval-number
-             "need a number when evaluating ~s, but got ~s"
-             expr result))))
+        result
+        (error 'eval-number
+               "need a number when evaluating ~s, but got ~s"
+               expr result))))
 
 (: eval-boolean : ALGAE PROGRAM -> Boolean)
 ;; helper for `eval': verifies that the result is a boolean
 (define (eval-boolean expr prog)
   (let ([result (eval expr prog)])
     (if (boolean? result)
-      result
-      (error 'eval-boolean
-             "need a boolean when evaluating ~s, but got ~s"
-             expr result))))
+        result
+        (error 'eval-boolean
+               "need a boolean when evaluating ~s, but got ~s"
+               expr result))))
 
 (: eval-symbol : ALGAE PROGRAM -> Symbol)
 ;; helper for `eval': verifies that the result is a symbol
@@ -383,6 +383,51 @@
                    {/ n 2}
                    {+ 1 {* n 3}}}}}}}}" 50) => 25)
 
+;; fibonacci test case
+(test (run "{program
+    {fun fib {n}
+      {if {<= n 1} n {+ {call fib {- n 1}} {call fib {- n 2}}}}}
+    {fun main {n}
+      {call fib n}}}" 6) => 8)
+
+;; factorial test case
+(test (run "{program
+    {fun factorial {n}
+      {if {<= n 0} 1 { * n {call factorial {- n 1}}}}}
+    {fun main {n}
+      {call factorial n}}}" 5) => 120)
+
+;; sum of n numbers
+(test (run "{program
+    {fun sum {n}
+      {if {<= n 0} 0 {+ n {call sum {- n 1}}}}}
+    {fun main {n}
+      {call sum n}}}" 4) => 10)
+
+;; lookup-fun, function not found error
+(test (run "{program
+    {fun sum {n}
+      {if {<= n 0} 0 {+ n {call sum {- n 1}}}}}
+    {fun main {n}
+      {call fact n}}}" 4) =error> "lookup-fun: Function not found: fact")
+
+;; invalid function syntax error
+(test (run "{program
+    {fun sum
+      {if {<= n 0} 0 {+ n {call sum {- n 1}}}}}
+    {fun main {n}
+      {call sum n}}}" 4) =error> "parse-fun: Invalid function syntax")
+
+;; function not found error
+(test (run "{program
+    {fun main {n}
+      {call sum n}}}" 4) =error> "lookup-fun: Function not found: sum ")
+
+;; invalid program syntax
+(test (run "{prog
+    {fun main {n}
+      {call sum n}}}" 4) =error> "parse-program: Invalid program syntax")
+
 (test (run "{program
   {fun even? {n}
     {if {= 0 n} True {call odd? {- n 1}}}}
@@ -419,11 +464,32 @@
                           {quote do_odd}}
                         n}}}}}}" 50) => 25)
 
-;; (test (run "{program {fun main {n} {vcall {if True}
-;;                                             {quote 500}
-;;                                             {quote foo} n}}
-;;                      {fun foo {n} {+ n 100}}}" 10)
-;;        =error>
-;;        "parse-expr: bad syntax in (vcall (if True) (quote 500) (quote foo) n)")
+(test (run "{program {fun main {n} {vcall {if True
+                                             {quote 500}
+                                             {< 1 2}} n}}
+                      {fun foo {n} {+ n 100}}}" 10)
+        =error>
+        "parse-expr: bad syntax in (quote 500)")
+
+(test (run "{program 
+              {fun main {n} 
+                {vcall 5 n}}
+              {fun foo {n} {+ n 100}}}" 10)
+      =error> "need a symbol when evaluating")
+
+(test (run "{program 
+              {fun main {n} 
+                {vcall {quote test-func} n}}
+              {fun test-func {n} {+ n 100}}}" 10)
+      => 110)
+
+;; value->algae Quote val coverage
+(test (run "{program
+              {fun main {n}
+                {with {func-name {quote add5}}
+                  {vcall func-name n}}}
+              {fun add5 {x} {+ x 5}}}" 10)
+      => 15)
+
 
 (define minutes-spent 300)
