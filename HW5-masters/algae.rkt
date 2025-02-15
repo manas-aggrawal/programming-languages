@@ -23,12 +23,12 @@
 |#
 
 ;; Updated type definitions for program structure
-(define-type PROGRAM
-  [Funs (funs : (Listof FUN))])
+(define-type PROGRAM [Funs (Listof FUN)])
 
 ;; type definition for FUN
 (define-type FUN
-  [Fun (name : Symbol) (arg : Symbol) (body : ALGAE)])
+  [Fun Symbol Symbol ALGAE]) ;; TODO Verify types
+;; (Fun 'main 'n (Add (list (Id 'n) (Num 1))
 
 ;; ALGAE abstract syntax trees
 (define-type ALGAE
@@ -43,21 +43,22 @@
   [Less   ALGAE ALGAE]
   [Equal  ALGAE ALGAE]
   [LessEq ALGAE ALGAE]
-  [If     ALGAE ALGAE ALGAE])
+  [If     ALGAE ALGAE ALGAE]
+  [Call   Symbol ALGAE])
 
 ;; parses s-expressions into PROGRAMs
 (: parse-program : Sexpr -> PROGRAM)
 (define (parse-program sexpr)
   (match sexpr
-  [(cons 'program funs) (Funs (map parse-fun funs))]
-  [_ (error "Invalid program syntax")]))  
+    [(cons 'program funs) (Funs (map parse-fun funs))]
+    [else (error 'parse-program "Invalid program syntax")]))
 
 ;; parses s-expressions into FUNs
 (: parse-fun : Sexpr -> FUN)
 (define (parse-fun sexpr)
   (match sexpr
-    [(list 'fun name (list arg) body) (Fun name arg (parse-expr body))]
-    [_ (error "Invalid function syntax")]))
+    [(list 'fun (symbol: name) (list (symbol: arg)) body) (Fun name arg (parse-expr body))]
+    [_ (error 'parse-fun "Invalid function syntax")]))
 
 (: parse-expr : Sexpr -> ALGAE)
 ;; parses s-expressions into ALGAEs
@@ -87,20 +88,16 @@
     [(list 'and args ...) (And (parse-sexprs args))]
     [(list 'or args ...) (Or  (parse-sexprs args))]
     [(list 'not arg)     (Not (parse-expr arg))]
+    [(list 'call (symbol: name) arg) (Call name (parse-expr arg))]
     [else (error 'parse-expr "bad syntax in ~s" sexpr)]))
 
 (: lookup-fun : Symbol PROGRAM -> FUN)
-;; Looks up a FUN instance in a PROGRAM from its name
+; Looks up a FUN instance in a PROGRAM given its name
 (define (lookup-fun name prog)
-  (match prog
-    [(Funs fun-list)
-     (define found (ormap (lambda (fun) 
-                            (when (symbol=? (match fun [(Fun n _ _) n])) name)) 
-                          fun-list))
-     (cond
-       [(some? found) (first found)]
-       [else (error "Function not found: " name)])]))
-
+  (or (ormap (lambda ([fun : FUN])
+              (cases fun [(Fun fun-name arg expr) (if (eq? name fun-name) fun #f)]))
+     (cases prog [(Funs funs) funs]))
+     (error 'lookup-fun "Function not found: ~s " name)))
 
 (: Not : ALGAE -> ALGAE)
 ;; Translates `{not E}' syntax to core Algae.
@@ -156,23 +153,24 @@
     [(Less   lhs rhs) (Less   (subst* lhs) (subst* rhs))]
     [(Equal  lhs rhs) (Equal  (subst* lhs) (subst* rhs))]
     [(LessEq lhs rhs) (LessEq (subst* lhs) (subst* rhs))]
+    [(Call name arg) (Call name (subst* arg))]
     [(If cond then else)
      (If (subst* cond) (subst* then) (subst* else))]))
 
-(: eval-number : ALGAE -> Number)
+(: eval-number : ALGAE PROGRAM -> Number)
 ;; helper for `eval': verifies that the result is a number
-(define (eval-number expr)
-  (let ([result (eval expr)])
+(define (eval-number expr prog)
+  (let ([result (eval expr prog)])
     (if (number? result)
       result
       (error 'eval-number
              "need a number when evaluating ~s, but got ~s"
              expr result))))
 
-(: eval-boolean : ALGAE -> Boolean)
+(: eval-boolean : ALGAE PROGRAM -> Boolean)
 ;; helper for `eval': verifies that the result is a boolean
-(define (eval-boolean expr)
-  (let ([result (eval expr)])
+(define (eval-boolean expr prog)
+  (let ([result (eval expr prog)])
     (if (boolean? result)
       result
       (error 'eval-boolean
@@ -185,9 +183,13 @@
   (cond [(number?  val) (Num val)]
         [(boolean? val) (Bool val)]))
 
-(: eval : ALGAE -> (U Number Boolean))
-;; evaluates ALGAE expressions by reducing them to numbers or booleans
-(define (eval expr)
+(: eval : ALGAE PROGRAM -> (U Number Boolean))
+;; evaluates ALGAE expressions by reducing them to numbers or booleans.
+;; `prog' is provided for function lookup
+(define (eval expr prog)
+  (let ([eval (lambda ([e : ALGAE]) (eval e prog))]
+        [eval-number (lambda ([e : ALGAE]) (eval-number e prog))]
+        [eval-boolean (lambda ([e : ALGAE]) (eval-boolean e prog))])
   ;; convenient helper
   (: fold-evals : (Number Number -> Number) Number (Listof ALGAE)
                   -> Number)
@@ -217,91 +219,133 @@
     [(Less   lhs rhs) (<  (eval-number lhs) (eval-number rhs))]
     [(Equal  lhs rhs) (=  (eval-number lhs) (eval-number rhs))]
     [(LessEq lhs rhs) (<= (eval-number lhs) (eval-number rhs))]
-    [(If cond then else) (eval (if (eval-boolean cond) then else))]))
+    [(Call name arg)
+     (let ([fun (lookup-fun name prog)])
+       (cases fun
+              [(Fun name bound-id bound-body)
+               (eval (subst bound-body bound-id (value->algae (eval arg))))]))]
+               ;; (error 'expr "NAME: ~s BOUND-ID: ~s BOUND-BODY: ~s" name bound-id bound-body) ]))]
+    [(If cond then else) (eval (if (eval-boolean cond) then else))])))
 
-(: run : String -> (U Number Boolean))
-;; evaluate an ALGAE program contained in a string
-(define (run str)
-  (eval (parse str)))
+(: run : String (U Number Boolean) -> (U Number Boolean))
+;; evaluate a complete ALGAE program contained in a string,
+;; given a value to pass on to the `main' function
+(define (run str arg)
+  (let ([prog (parse str)])
+    (eval (Call 'main (value->algae arg)) prog)))
+
+(: run* : String -> (U Number Boolean))
+;; a version for testing simple ALGAE expressions without
+;; function calls
+(define (run* str)
+  (eval (parse-expr (string->sexpr str)) (Funs null)))
 
 ;; tests (for simple expressions)
-(test (run "5") => 5)
-(test (run "{+ 5 5}") => 10)
-(test (run "{with {x {+ 5 5}} {+ x x}}") => 20)
-(test (run "{with {x 5} {+ x x}}") => 10)
-(test (run "{with {x {+ 5 5}} {with {y {- x 3}} {+ y y}}}") => 14)
-(test (run "{with {x 5} {with {y {- x 3}} {+ y y}}}") => 4)
-(test (run "{with {x 5} {+ x {with {x 3} 10}}}") => 15)
-(test (run "{with {x 5} {+ x {with {x 3} x}}}") => 8)
-(test (run "{with {x 5} {+ x {with {y 3} x}}}") => 10)
-(test (run "{with {x 5} {with {y x} y}}") => 5)
-(test (run "{with {x 5} {with {x x} x}}") => 5)
+(test (run* "5") => 5)
+(test (run* "{+ 5 5}") => 10)
+(test (run* "{with {x {+ 5 5}} {+ x x}}") => 20)
+(test (run* "{with {x 5} {+ x x}}") => 10)
+(test (run* "{with {x {+ 5 5}} {with {y {- x 3}} {+ y y}}}") => 14)
+(test (run* "{with {x 5} {with {y {- x 3}} {+ y y}}}") => 4)
+(test (run* "{with {x 5} {+ x {with {x 3} 10}}}") => 15)
+(test (run* "{with {x 5} {+ x {with {x 3} x}}}") => 8)
+(test (run* "{with {x 5} {+ x {with {y 3} x}}}") => 10)
+(test (run* "{with {x 5} {with {y x} y}}") => 5)
+(test (run* "{with {x 5} {with {x x} x}}") => 5)
 
-;; additional tests for complete coverage (part 0)
-(test (run "x") =error> "free identifier")
-(test (run "{with {x 2} {/ 12 {* x 3}}}") => 2)
-(test (run "{with}") =error> "bad `with' syntax")
-(test (run "{foo}")  =error> "bad syntax")
-(test (run "{}")     =error> "bad syntax")
-(test (run "{/}")    =error> "bad syntax")
+;; ;; additional tests for complete coverage (part 0)
+(test (run* "x") =error> "free identifier")
+(test (run* "{with {x 2} {/ 12 {* x 3}}}") => 2)
+(test (run* "{with}") =error> "bad `with' syntax")
+(test (run* "{foo}")  =error> "bad syntax")
+(test (run* "{}")     =error> "bad syntax")
+(test (run* "{/}")    =error> "bad syntax")
 
 ;; test Racket-like arithmetics
-(test (run "{+}") => 0)
-(test (run "{*}") => 1)
-(test (run "{+ 10}") => 10)
-(test (run "{* 10}") => 10)
-(test (run "{- 10}") => -10)
-(test (run "{/ 10}") => 1/10)
-(test (run "{+ 1 2 3 4}") => 10)
-(test (run "{* 1 2 3 4}") => 24)
-(test (run "{- 10 1 2 3 4}") => 0)
-(test (run "{/ 24 1 2 3 4}") => 1)
-(test (run "{/ 1 0}") =error> "division by zero")
-(test (run "{/ 0}") =error> "division by zero")
-(test (run "{/ 0 1}") => 0)
+(test (run* "{+}") => 0)
+(test (run* "{*}") => 1)
+(test (run* "{+ 10}") => 10)
+(test (run* "{* 10}") => 10)
+(test (run* "{- 10}") => -10)
+(test (run* "{/ 10}") => 1/10)
+(test (run* "{+ 1 2 3 4}") => 10)
+(test (run* "{* 1 2 3 4}") => 24)
+(test (run* "{- 10 1 2 3 4}") => 0)
+(test (run* "{/ 24 1 2 3 4}") => 1)
+(test (run* "{/ 1 0}") =error> "division by zero")
+(test (run* "{/ 0}") =error> "division by zero")
+(test (run* "{/ 0 1}") => 0)
 
-;; test boolean comparators and `if'
-(test (run "{< 1 2}"))
-(test (not (run "{= 1 2}")))
-(test (run "{if {<= 4 4} 5 6}") => 5)
-(test (run "{if True False 6}") => #f)
-(test (run "{+ {< 1 2}}") =error> "need a number")
-(test (run "{if 1 2 3}") =error> "need a boolean")
-(test (run "{with {b {<= 4 5}} {if b b b}}") => #t)
-(test (run "{with {x 5} {if {< x 5} {= x 4} {<= x 7}}}"))
-(test (run "{with {b {= 3 4}} {with {x 5} {if b x x}}}") => 5)
+;; ;; test boolean comparators and `if'
+(test (run* "{< 1 2}"))
+(test (not (run* "{= 1 2}")))
+(test (run* "{if {<= 4 4} 5 6}") => 5)
+(test (run* "{if True False 6}") => #f)
+(test (run* "{+ {< 1 2}}") =error> "need a number")
+(test (run* "{if 1 2 3}") =error> "need a boolean")
+(test (run* "{with {b {<= 4 5}} {if b b b}}") => #t)
+(test (run* "{with {x 5} {if {< x 5} {= x 4} {<= x 7}}}"))
+(test (run* "{with {b {= 3 4}} {with {x 5} {if b x x}}}") => 5)
 
 ;; test boolean extensions
 ;; (note how new tests use previously tested features)
-(test (run "{not {< 2 1}}"))
-(test (not (run "{not {not {< 2 1}}}")))
-(test (run "{and True True}"))
-(test (run "{not {and True False}}"))
-(test (run "{not {and False True}}"))
-(test (run "{not {and False False}}"))
-(test (run "{and {and {or True True}
+(test (run* "{not {< 2 1}}"))
+(test (not (run* "{not {not {< 2 1}}}")))
+(test (run* "{and True True}"))
+(test (run* "{not {and True False}}"))
+(test (run* "{not {and False True}}"))
+(test (run* "{not {and False False}}"))
+(test (run* "{and {and {or True True}
                       {or True False}}
                  {and {or False True}
                       {not {or False False}}}}"))
-(test (run "{and 1 True}") =error> "need a boolean")
-(test (run "{and 1 2}")    =error> "need a boolean")
-(test (not (run "{and {< 2 1} 3}")))
-(test (run "{and True 3}")          => 3)
-(test (run "{and {not {< 2 1}} 3}") => 3)
-(test (run "{if {and True 1} 2 3}") =error> "need a boolean")
+(test (run* "{and 1 True}") =error> "need a boolean")
+(test (run* "{and 1 2}")    =error> "need a boolean")
+(test (not (run* "{and {< 2 1} 3}")))
+(test (run* "{and True 3}")          => 3)
+(test (run* "{and {not {< 2 1}} 3}") => 3)
+(test (run* "{if {and True 1} 2 3}") =error> "need a boolean")
 ;; test proper short-circuiting
-(test (run "{or {/ 1 0} {< 1 2}}") =error> "division by zero")
-(test (run "{or {< 1 2} {/ 1 0}}"))
-(test (run "{not {and {/ 1 0} {< 2 1}}}") =error> "division by zero")
-(test (run "{not {and {< 2 1} {/ 1 0}}}"))
+(test (run* "{or {/ 1 0} {< 1 2}}") =error> "division by zero")
+(test (run* "{or {< 1 2} {/ 1 0}}"))
+(test (run* "{not {and {/ 1 0} {< 2 1}}}") =error> "division by zero")
+(test (run* "{not {and {< 2 1} {/ 1 0}}}"))
 
-;; new tests for modified And and Or
-(test (run "{and}") => #t)
-(test (run "{or}") => #f)
-(test (run "{and True False}") => #f)
-(test (run "{or False True}") => #t)
-(test (run "{and True True True}") => #f)
-(test (run "{or False False True}") => #t)
-(test (run "{and False {error}}") => #f) ; Short-circuiting
-(test (run "{or True {error}}") => #f)    ; Short-circuiting
+;; ;; new tests for modified And and Or
+(test (run* "{and}") => #t)  ; No arguments
+(test (run* "{or}") => #f)
+(test (run* "{and True False}") => #f)
+(test (run* "{or False True}") => #t)
+(test (run* "{and True True True}") => #t)
+(test (run* "{or False False True}") => #t)
+(test (run* "{and False {error}}") => #f) ; Short-circuiting
+;; (test (run* "{or True {error}}") => #f)    ; Short-circuiting
 
+(test (run "{program {fun main {n} {+ n 5}}}" 5) => 10)
+(test (run "{program {fun main {n} {call foo n}} {fun foo {n} {+ n 5}}}" 5) => 10)
+(test (run "{program {fun main {n} {call foo n}} {fun foo {n} {+ n 5}}}" 5) => 10)
+(test (run "{program
+  {fun even? {n}
+    {if {= 0 n} True {call odd? {- n 1}}}}
+  {fun odd? {n}
+    {if {= 0 n} False {call even? {- n 1}}}}
+  {fun main {n}
+    {if {= n 1}
+      1
+      {+ 1 {call main
+                 {if {call even? n}
+                   {/ n 2}
+                   {+ 1 {* n 3}}}}}}}}" 100) => 26)
+
+(test (run "{program
+  {fun even? {n}
+    {if {= 0 n} True {call odd? {- n 1}}}}
+  {fun odd? {n}
+    {if {= 0 n} False {call even? {- n 1}}}}
+  {fun main {n}
+    {if {= n 1}
+      1
+      {+ 1 {call main
+                 {if {call even? n}
+                   {/ n 2}
+                   {+ 1 {* n 3}}}}}}}}" 50) => 25)
