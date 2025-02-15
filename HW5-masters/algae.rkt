@@ -318,8 +318,9 @@
 (test (run* "{or False True}") => #t)
 (test (run* "{and True True True}") => #t)
 (test (run* "{or False False True}") => #t)
-(test (run* "{and False {error}}") => #f) ; Short-circuiting
-;; (test (run* "{or True {error}}") => #f)    ; Short-circuiting
+(test (run* "{and False {/ 1 0}}") => #f) ; Short-circuiting
+(test (run* "{or True {/ 2 0}}") => #t)  ; Short-circuiting
+
 
 (test (run "{program {fun main {n} {+ n 5}}}" 5) => 10)
 (test (run "{program {fun main {n} {call foo n}} {fun foo {n} {+ n 5}}}" 5) => 10)
