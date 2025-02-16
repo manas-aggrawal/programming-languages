@@ -15,7 +15,6 @@ The grammar:
             | { call <BRANG> <BRANG> }
 
 Evaluation rules:
-  eval(CRef(N), env)         = list-ref(env, N)
   eval({+ E1 E2},env)        = eval(E1,env) + eval(E2,env)
   eval({- E1 E2},env)        = eval(E1,env) - eval(E2,env)
   eval({* E1 E2},env)        = eval(E1,env) * eval(E2,env)
@@ -25,6 +24,7 @@ Evaluation rules:
   eval({CCall E1 E2},env1)    = eval(B,cons(eval(E2, env), env2))
                               if eval(E1,env) = <closure {fun {} B}, env2>
                              = error!  otherwise
+  eval(CRef(N), env)         = list-ref(env, N)
 |#
 
 (define-type BRANG
@@ -78,12 +78,29 @@ Evaluation rules:
 (define (parse str)
   (parse-sexpr (string->sexpr str)))
 
-(define-type ENV
-  [Env (lst (Listof VAL))])
+(define-type ENV = (Listof VAL))
+
+(define-type DE-ENV = Symbol -> Natural)
+
+(: de-empty-env : Symbol -> Natural)
+;; Empty environment mapping to bootstrap creation of de-env
+(define (de-empty-env sym)
+  (error 'de-empty-env "Empty env does not have any mappings for ~s" sym))
 
 (define-type VAL
   [NumV Number]
   [FunV CORE ENV])
+
+(: de-extend : DE-ENV Symbol -> DE-ENV)
+;; Extend the environment by mapping symbol 'sym' to 0.
+;; Add 1 and recurse if the symbol is not present
+;; If the element doesn't exist, the first function will be called,
+;; i.e de-empty-env
+(define (de-extend env sym)
+  (lambda (x)
+    (if (eq? x sym)
+        0
+        (add1 (env x)))))
 
 (: NumV->number : VAL -> Number)
 ;; convert a BRANG runtime numeric value to a Racket one
@@ -125,44 +142,55 @@ Evaluation rules:
        [else (error 'eval "`call' expects a function, got: ~s"
                     fval)])]))
 
-(: run : String -> Number)
-;; evaluate a BRANG program contained in a string
-(define (run str)
-  (let ([result (eval (parse str) (EmptyEnv))])
-    (cases result
-      [(NumV n) n]
-      [else (error 'run "evaluation returned a non-number: ~s"
-                   result)])))
+;; (: run : String -> Number)
+;; ;; evaluate a BRANG program contained in a string
+;; (define (run str)
+;;   (let ([result (eval (parse str) '())])
+;;     (cases result
+;;       [(NumV n) n]
+;;       [else (error 'run "evaluation returned a non-number: ~s"
+;;                    result)])))
+;;
+;; ;; tests
+;; (test (run "{call {fun {x} {+ x 1}} 4}")
+;;       => 5)
+;; (test (run "{with {add3 {fun {x} {+ x 3}}}
+;;               {call add3 1}}")
+;;       => 4)
+;; (test (run "{with {add3 {fun {x} {+ x 3}}}
+;;               {with {add1 {fun {x} {+ x 1}}}
+;;                 {with {x 3}
+;;                   {call add1 {call add3 x}}}}}")
+;;       => 7)
+;; (test (run "{with {identity {fun {x} x}}
+;;               {with {foo {fun {x} {+ x 1}}}
+;;                 {call {call identity foo} 123}}}")
+;;       => 124)
+;; (test (run "{with {x 3}
+;;               {with {f {fun {y} {+ x y}}}
+;;                 {with {x 5}
+;;                   {call f 4}}}}")
+;;       => 7)
+;; (test (run "{call {with {x 3}
+;;                     {fun {y} {+ x y}}}
+;;                   4}")
+;;       => 7)
+;; (test (run "{with {f {with {x 3} {fun {y} {+ x y}}}}
+;;               {with {x 100}
+;;                 {call f 4}}}")
+;;       => 7)
+;; (test (run "{call {call {fun {x} {call x 1}}
+;;                         {fun {x} {fun {y} {+ x y}}}}
+;;                   123}")
+;;       => 124)
 
-;; tests
-(test (run "{call {fun {x} {+ x 1}} 4}")
-      => 5)
-(test (run "{with {add3 {fun {x} {+ x 3}}}
-              {call add3 1}}")
-      => 4)
-(test (run "{with {add3 {fun {x} {+ x 3}}}
-              {with {add1 {fun {x} {+ x 1}}}
-                {with {x 3}
-                  {call add1 {call add3 x}}}}}")
-      => 7)
-(test (run "{with {identity {fun {x} x}}
-              {with {foo {fun {x} {+ x 1}}}
-                {call {call identity foo} 123}}}")
-      => 124)
-(test (run "{with {x 3}
-              {with {f {fun {y} {+ x y}}}
-                {with {x 5}
-                  {call f 4}}}}")
-      => 7)
-(test (run "{call {with {x 3}
-                    {fun {y} {+ x y}}}
-                  4}")
-      => 7)
-(test (run "{with {f {with {x 3} {fun {y} {+ x y}}}}
-              {with {x 100}
-                {call f 4}}}")
-      => 7)
-(test (run "{call {call {fun {x} {call x 1}}
-                        {fun {x} {fun {y} {+ x y}}}}
-                  123}")
-      => 124)
+;; Temp tests for testing de bruijn indices
+(define e1 (de-extend de-empty-env 'b))
+(define e2 (de-extend e1 'a))
+(define e3 (de-extend e2 'x))
+(test (e1 'a) =error>
+"de-empty-env: Empty env does not have any mappings for a")
+(test (e1 'b) => 0)          ; and 'b is mapped to 0
+(test (e2 'a) => 0)          ; e2 maps 'a to 0
+(test (e2 'b) => 1)          ; and now 'b is mapped to 1
+(test (e3 'b) => 2)          ; and now 'b is mapped to 1
