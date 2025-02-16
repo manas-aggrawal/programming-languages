@@ -102,6 +102,22 @@ Evaluation rules:
         0
         (add1 (env x)))))
 
+(: preprocess : BRANG DE-ENV -> CORE)
+;; Converts BRANG to CORE representation using de bruijn indices
+(define (preprocess brexpr env)
+  (cases brexpr
+    [(Num n)       (CNum n)]
+    [(Add lhs rhs) (CAdd (preprocess lhs env) (preprocess rhs env))]
+    [(Sub lhs rhs) (CSub (preprocess lhs env) (preprocess rhs env))]
+    [(Mul lhs rhs) (CMul (preprocess lhs env) (preprocess rhs env))]
+    [(Div lhs rhs) (CDiv (preprocess lhs env) (preprocess rhs env))]
+    [(Id name)     (CRef (env name))]
+    [(With name expr body)
+     (CWith (preprocess expr env)
+            (preprocess body (de-extend env name)))]
+    [(Fun name body) (CFun (preprocess body (de-extend env name)))]
+    [(Call fun arg) (CCall (preprocess fun env) (preprocess arg env))]))
+
 (: NumV->number : VAL -> Number)
 ;; convert a BRANG runtime numeric value to a Racket one
 (define (NumV->number val)
@@ -142,47 +158,47 @@ Evaluation rules:
        [else (error 'eval "`call' expects a function, got: ~s"
                     fval)])]))
 
-;; (: run : String -> Number)
-;; ;; evaluate a BRANG program contained in a string
-;; (define (run str)
-;;   (let ([result (eval (parse str) '())])
-;;     (cases result
-;;       [(NumV n) n]
-;;       [else (error 'run "evaluation returned a non-number: ~s"
-;;                    result)])))
-;;
-;; ;; tests
-;; (test (run "{call {fun {x} {+ x 1}} 4}")
-;;       => 5)
-;; (test (run "{with {add3 {fun {x} {+ x 3}}}
-;;               {call add3 1}}")
-;;       => 4)
-;; (test (run "{with {add3 {fun {x} {+ x 3}}}
-;;               {with {add1 {fun {x} {+ x 1}}}
-;;                 {with {x 3}
-;;                   {call add1 {call add3 x}}}}}")
-;;       => 7)
-;; (test (run "{with {identity {fun {x} x}}
-;;               {with {foo {fun {x} {+ x 1}}}
-;;                 {call {call identity foo} 123}}}")
-;;       => 124)
-;; (test (run "{with {x 3}
-;;               {with {f {fun {y} {+ x y}}}
-;;                 {with {x 5}
-;;                   {call f 4}}}}")
-;;       => 7)
-;; (test (run "{call {with {x 3}
-;;                     {fun {y} {+ x y}}}
-;;                   4}")
-;;       => 7)
-;; (test (run "{with {f {with {x 3} {fun {y} {+ x y}}}}
-;;               {with {x 100}
-;;                 {call f 4}}}")
-;;       => 7)
-;; (test (run "{call {call {fun {x} {call x 1}}
-;;                         {fun {x} {fun {y} {+ x y}}}}
-;;                   123}")
-;;       => 124)
+(: run : String -> Number)
+;; evaluate a BRANG program contained in a string
+(define (run str)
+  (let ([result (eval (preprocess (parse str) de-empty-env) '())])
+    (cases result
+      [(NumV n) n]
+      [else (error 'run "evaluation returned a non-number: ~s"
+                   result)])))
+
+;; tests
+(test (run "{call {fun {x} {+ x 1}} 4}")
+      => 5)
+(test (run "{with {add3 {fun {x} {+ x 3}}}
+              {call add3 1}}")
+      => 4)
+(test (run "{with {add3 {fun {x} {+ x 3}}}
+              {with {add1 {fun {x} {+ x 1}}}
+                {with {x 3}
+                  {call add1 {call add3 x}}}}}")
+      => 7)
+(test (run "{with {identity {fun {x} x}}
+              {with {foo {fun {x} {+ x 1}}}
+                {call {call identity foo} 123}}}")
+      => 124)
+(test (run "{with {x 3}
+              {with {f {fun {y} {+ x y}}}
+                {with {x 5}
+                  {call f 4}}}}")
+      => 7)
+(test (run "{call {with {x 3}
+                    {fun {y} {+ x y}}}
+                  4}")
+      => 7)
+(test (run "{with {f {with {x 3} {fun {y} {+ x y}}}}
+              {with {x 100}
+                {call f 4}}}")
+      => 7)
+(test (run "{call {call {fun {x} {call x 1}}
+                        {fun {x} {fun {y} {+ x y}}}}
+                  123}")
+      => 124)
 
 ;; Temp tests for testing de bruijn indices
 (define e1 (de-extend de-empty-env 'b))
