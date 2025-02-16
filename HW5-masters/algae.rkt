@@ -51,15 +51,15 @@
   [Quote  Symbol]
   [VCall  ALGAE ALGAE])
 
-;; parses s-expressions into PROGRAMs
 (: parse-program : Sexpr -> PROGRAM)
+;; parses s-expressions into PROGRAMs
 (define (parse-program sexpr)
   (match sexpr
     [(cons 'program funs) (Funs (map parse-fun funs))]
     [else (error 'parse-program "Invalid program syntax")]))
 
-;; parses s-expressions into FUNs
 (: parse-fun : Sexpr -> FUN)
+;; parses s-expressions into FUNs
 (define (parse-fun sexpr)
   (match sexpr
     [(list 'fun (symbol: name) (list (symbol: arg)) body)
@@ -101,7 +101,8 @@
     [else (error 'parse-expr "bad syntax in ~s" sexpr)]))
 
 (: lookup-fun : Symbol PROGRAM -> FUN)
-; Looks up a FUN instance in a PROGRAM given its name
+;; Looks up and returns FUN instance in a PROGRAM given its name. Throws
+;; error if function is not present
 (define (lookup-fun name prog)
   (or (ormap (lambda ([fun : FUN])
                (cases fun
@@ -341,15 +342,21 @@
 (test (run* "{not {and {/ 1 0} {< 2 1}}}") =error> "division by zero")
 (test (run* "{not {and {< 2 1} {/ 1 0}}}"))
 
-;; ;; new tests for modified And and Or
+;; new tests for modified And and Or
 (test (run* "{and}") => #t)  ; No arguments
 (test (run* "{or}") => #f)
 (test (run* "{and True False}") => #f)
 (test (run* "{or False True}") => #t)
 (test (run* "{and True True True}") => #t)
 (test (run* "{or False False True}") => #t)
-(test (run* "{and False {/ 1 0}}") => #f) ; Short-circuiting
-(test (run* "{or True {/ 2 0}}") => #t)  ; Short-circuiting
+
+; Short-circuiting
+(test (run* "{and False {/ 1 0}}") => #f)
+(test (run* "{and True True True True True False {/ 1 0}}") => #f)
+(test (run* "{and True True False True True False {/ 1 0}}") => #f)
+(test (run* "{or False True {/ 2 0}}") => #t)
+(test (run* "{or False False False False True {/ 2 0}}") => #t)
+(test (run* "{or False False True False False {/ 2 0}}") => #t)
 
 
 (test (run "{program {fun main {n} {+ n 5}}}" 5) => 10)
@@ -464,32 +471,42 @@
                           {quote do_odd}}
                         n}}}}}}" 50) => 25)
 
-(test (run "{program {fun main {n} {vcall {if True
-                                             {quote 500}
-                                             {< 1 2}} n}}
-                      {fun foo {n} {+ n 100}}}" 10)
-        =error>
-        "parse-expr: bad syntax in (quote 500)")
-
-(test (run "{program 
-              {fun main {n} 
-                {vcall 5 n}}
+;; Short circuit test "and", and bar (bar doesn't exist)
+(test (run "{program
+              {fun main {n}
+                {vcall {if {and True False {/ 5 0}}
+                           {quote bar}
+                           {quote foo}} n}}
               {fun foo {n} {+ n 100}}}" 10)
-      =error> "need a symbol when evaluating")
-
-(test (run "{program 
-              {fun main {n} 
-                {vcall {quote test-func} n}}
-              {fun test-func {n} {+ n 100}}}" 10)
       => 110)
 
-;; value->algae Quote val coverage
+;; Short circuit test "or", and bar (bar doesn't exist)
+(test (run "{program
+              {fun main {n}
+                {vcall {if {or False True {/ 5 0}}
+                           {quote foo}
+                           {quote bar}} n}}
+              {fun foo {n} {+ n 100}}}" 11)
+      => 111)
+
+(test (run "{program
+              {fun main {n}
+                {vcall 5 n}}
+              {fun foo {n} {+ n 100}}}" 12)
+      =error> "eval-symbol: need a symbol when evaluating (Num 5), but got 5")
+
+(test (run "{program
+              {fun main {n}
+                {vcall {quote test-func} n}}
+              {fun test-func {n} {+ n 100}}}" 13)
+      => 113)
+
 (test (run "{program
               {fun main {n}
                 {with {func-name {quote add5}}
                   {vcall func-name n}}}
-              {fun add5 {x} {+ x 5}}}" 10)
-      => 15)
+              {fun add5 {x} {+ x 5}}}" 14)
+      => 19)
 
 
 (define minutes-spent 300)
