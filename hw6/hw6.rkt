@@ -45,7 +45,6 @@ Evaluation rules:
   [CMul  CORE CORE]
   [CDiv  CORE CORE]
   [CRef   Natural]
-  [CWith CORE CORE]
   [CFun  CORE]
   [CCall CORE CORE])
 
@@ -112,9 +111,9 @@ Evaluation rules:
     [(Mul lhs rhs) (CMul (preprocess lhs env) (preprocess rhs env))]
     [(Div lhs rhs) (CDiv (preprocess lhs env) (preprocess rhs env))]
     [(Id name)     (CRef (env name))]
-    [(With name expr body)
-     (CWith (preprocess expr env)
-            (preprocess body (de-extend env name)))]
+    [(With name expr body) ; expr is the arg and body is the fun body
+     (CCall (CFun (preprocess body (de-extend env name)))
+            (preprocess expr env))]
     [(Fun name body) (CFun (preprocess body (de-extend env name)))]
     [(Call fun arg) (CCall (preprocess fun env) (preprocess arg env))]))
 
@@ -140,9 +139,6 @@ Evaluation rules:
     [(CSub l r) (arith-op - (eval l env) (eval r env))]
     [(CMul l r) (arith-op * (eval l env) (eval r env))]
     [(CDiv l r) (arith-op / (eval l env) (eval r env))]
-    [(CWith named-expr bound-body)
-     (eval bound-body
-           (cons (eval named-expr env) env))]
     [(CRef n)
      (if (< n (length env))
          (list-ref env n)
