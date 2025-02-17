@@ -11,8 +11,8 @@ The grammar:
             | { / <BRANG> <BRANG> }
             | { with { <id> <BRANG> } <BRANG> }
             | <id>
-            | { fun { <id> } <BRANG> }
-            | { call <BRANG> <BRANG> }
+            | { fun { <id> <id> ... } <BRANG> }
+            | { call <BRANG> <BRANG> <BRANG> ... }
 
 Evaluation rules:
   eval({+ E1 E2},env)        = eval(E1,env) + eval(E2,env)
@@ -35,8 +35,8 @@ Evaluation rules:
   [Div  BRANG BRANG]
   [Id   Symbol]
   [With Symbol BRANG BRANG]
-  [Fun  Symbol BRANG]
-  [Call BRANG BRANG])
+  [Fun  (Listof Symbol) BRANG]
+  [Call BRANG (Listof BRANG)])
 
 (define-type CORE
   [CNum  Number]
@@ -51,6 +51,9 @@ Evaluation rules:
 (: parse-sexpr : Sexpr -> BRANG)
 ;; parses s-expressions into BRANGs
 (define (parse-sexpr sexpr)
+  ;; utility for parsing a list of expressions
+  (: parse-sexprs : (Listof Sexpr) -> (Listof BRANG))
+  (define (parse-sexprs sexprs) (map parse-sexpr sexprs))
   (match sexpr
     [(number: n)    (Num n)]
     [(symbol: name) (Id name)]
@@ -61,15 +64,15 @@ Evaluation rules:
        [else (error 'parse-sexpr "bad `with' syntax in ~s" sexpr)])]
     [(cons 'fun more)
      (match sexpr
-       [(list 'fun (list (symbol: name)) body)
-        (Fun name (parse-sexpr body))]
+       [(list 'fun (list (symbol: names) ...) body)
+        (Fun names (parse-sexpr body))]
        [else (error 'parse-sexpr "bad `fun' syntax in ~s" sexpr)])]
     [(list '+ lhs rhs) (Add (parse-sexpr lhs) (parse-sexpr rhs))]
     [(list '- lhs rhs) (Sub (parse-sexpr lhs) (parse-sexpr rhs))]
     [(list '* lhs rhs) (Mul (parse-sexpr lhs) (parse-sexpr rhs))]
     [(list '/ lhs rhs) (Div (parse-sexpr lhs) (parse-sexpr rhs))]
-    [(list 'call fun arg)
-                       (Call (parse-sexpr fun) (parse-sexpr arg))]
+    [(list 'call fun arg ...)
+                       (Call (parse-sexpr fun) (parse-sexprs arg))]
     [else (error 'parse-sexpr "bad syntax in ~s" sexpr)]))
 
 (: parse : String -> BRANG)
@@ -90,20 +93,43 @@ Evaluation rules:
   [NumV Number]
   [FunV CORE ENV])
 
-(: de-extend : DE-ENV Symbol -> DE-ENV)
+(: de-extend : Symbol DE-ENV -> DE-ENV)
 ;; Extend the environment by mapping symbol 'sym' to 0.
 ;; Add 1 and recurse if the symbol is not present
 ;; If the element doesn't exist, the first function will be called,
 ;; i.e de-empty-env
-(define (de-extend env sym)
+(define (de-extend sym env)
   (lambda (x)
     (if (eq? x sym)
         0
         (add1 (env x)))))
 
+(: preprocess-fun : BRANG Symbol (Listof Symbol) DE-ENV -> CORE)
+;; Curry all args into CFuns
+(define (preprocess-fun body first-arg args env)
+  (let ([next-env (de-extend first-arg env)])
+  (if (null? args)
+    (CFun (preprocess body next-env))
+    (CFun (preprocess-fun body (first args) (rest args) next-env)))))
+
+(: preprocess-call : BRANG BRANG (Listof BRANG) DE-ENV -> CORE)
+;; Call curried CFuns by folding the args into CCalls
+(define (preprocess-call fun first-arg args env)
+  (: fold-calls : BRANG CORE -> CORE)
+  ;; Heler function to be used while folding BRANGs to CORE
+  (define (fold-calls arg acc-calls) (CCall acc-calls (preprocess arg env)))
+  (let ([fun (preprocess fun env)] ; Ensures functions and args are processed
+        [first-arg (preprocess first-arg env)])
+    (foldl fold-calls
+           (CCall fun first-arg)
+           args)))
+
 (: preprocess : BRANG DE-ENV -> CORE)
 ;; Converts BRANG to CORE representation using de bruijn indices
 (define (preprocess brexpr env)
+  ;; (: de-extend* : (Listof Symbol) -> DE-ENV)
+  ;; ;; Helper function to extend all names into one env
+  ;; (define (de-extend* names) (foldl de-extend env names))
   (cases brexpr
     [(Num n)       (CNum n)]
     [(Add lhs rhs) (CAdd (preprocess lhs env) (preprocess rhs env))]
@@ -112,10 +138,11 @@ Evaluation rules:
     [(Div lhs rhs) (CDiv (preprocess lhs env) (preprocess rhs env))]
     [(Id name)     (CRef (env name))]
     [(With name expr body) ; expr is the arg and body is the fun body
-     (CCall (CFun (preprocess body (de-extend env name)))
+     (CCall (CFun (preprocess body (de-extend name env)))
             (preprocess expr env))]
-    [(Fun name body) (CFun (preprocess body (de-extend env name)))]
-    [(Call fun arg) (CCall (preprocess fun env) (preprocess arg env))]))
+    [(Fun names body) (preprocess-fun body (first names) (rest names) env)]
+    ;; [(Call fun arg) (CCall (preprocess fun env) (preprocess arg env))]))
+    [(Call fun args) (preprocess-call fun (first args) (rest args) env)]))
 
 (: NumV->number : VAL -> Number)
 ;; convert a BRANG runtime numeric value to a Racket one
@@ -196,13 +223,26 @@ Evaluation rules:
                   123}")
       => 124)
 
-;; Temp tests for testing de bruijn indices
-(define e1 (de-extend de-empty-env 'b))
-(define e2 (de-extend e1 'a))
-(define e3 (de-extend e2 'x))
-(test (e1 'a) =error>
-"de-empty-env: Empty env does not have any mappings for a")
-(test (e1 'b) => 0)          ; and 'b is mapped to 0
-(test (e2 'a) => 0)          ; e2 maps 'a to 0
-(test (e2 'b) => 1)          ; and now 'b is mapped to 1
-(test (e3 'b) => 2)          ; and now 'b is mapped to 1
+(test (run "{call {fun {x y z} {+ {+ x y} z}} 1 2 3}") => 6)
+
+;; Temp tests for testing de bruijn indices TODO: Remove
+;; (define e1 (de-extend de-empty-env 'b))
+;; (define e2 (de-extend e1 'a))
+;; (define e3 (de-extend e2 'x))
+;; (test (e1 'a) =error>
+;; "de-empty-env: Empty env does not have any mappings for a")
+;; (test (e1 'b) => 0)          ; and 'b is mapped to 0
+;; (test (e2 'a) => 0)          ; e2 maps 'a to 0
+;; (test (e2 'b) => 1)          ; and now 'b is mapped to 1
+;; (test (e3 'b) => 2)          ; and now 'b is mapped to 1
+;; (preprocess (parse "{call {fun {x y z} {+ {+ x y} z} }1 2 3}") de-empty-env)
+
+;; Scratch
+;; (Fun '(x y) (Add (Id 'x) (Id 'y)))
+;; (CFun (x) (CFun (y) ((Add (Id 'x) (Id 'y)))))
+;; (Call *** x y)
+;; (CCall (CCall *** x) y)
+;;
+;; (Fun '(x y z) (Add (Id 'x) (Id 'y) (Id 'z)))
+;; (CFun (x) (CFun (y) (Cfun (z) (Add (Id 'x) (Id 'y) (Id 'z)))))
+;; (CCall (CCall (CCall ... (Num 1)) (Num 2)) (Num 3))
