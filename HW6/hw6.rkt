@@ -51,8 +51,8 @@ Evaluation rules:
 (: parse-sexpr : Sexpr -> BRANG)
 ;; parses s-expressions into BRANGs
 (define (parse-sexpr sexpr)
-  ;; utility for parsing a list of expressions
   (: parse-sexprs : (Listof Sexpr) -> (Listof BRANG))
+  ;; utility for parsing a list of expressions
   (define (parse-sexprs sexprs) (map parse-sexpr sexprs))
   (match sexpr
     [(number: n)    (Num n)]
@@ -72,7 +72,7 @@ Evaluation rules:
     [(list '* lhs rhs) (Mul (parse-sexpr lhs) (parse-sexpr rhs))]
     [(list '/ lhs rhs) (Div (parse-sexpr lhs) (parse-sexpr rhs))]
     [(list 'call fun arg ...)
-                       (Call (parse-sexpr fun) (parse-sexprs arg))]
+     (Call (parse-sexpr fun) (parse-sexprs arg))]
     [else (error 'parse-sexpr "bad syntax in ~s" sexpr)]))
 
 (: parse : String -> BRANG)
@@ -86,6 +86,7 @@ Evaluation rules:
 
 (: de-empty-env : Symbol -> Natural)
 ;; Empty environment mapping to bootstrap creation of de-env
+;; If it is called it will throw an error
 (define (de-empty-env sym)
   (error 'de-empty-env "Empty env does not have any mappings for ~s" sym))
 
@@ -108,15 +109,15 @@ Evaluation rules:
 ;; Curry all args into CFuns
 (define (preprocess-fun body first-arg args env)
   (let ([next-env (de-extend first-arg env)])
-  (if (null? args)
-    (CFun (preprocess body next-env))
-    (CFun (preprocess-fun body (first args) (rest args) next-env)))))
+    (if (null? args)
+        (CFun (preprocess body next-env))
+        (CFun (preprocess-fun body (first args) (rest args) next-env)))))
 
 (: preprocess-call : BRANG BRANG (Listof BRANG) DE-ENV -> CORE)
 ;; Call curried CFuns by folding the args into CCalls
 (define (preprocess-call fun first-arg args env)
   (: fold-calls : BRANG CORE -> CORE)
-  ;; Heler function to be used while folding BRANGs to CORE
+  ;; Helper function to be used while folding BRANGs to CORE
   (define (fold-calls arg acc-calls) (CCall acc-calls (preprocess arg env)))
   (let ([fun (preprocess fun env)] ; Ensures functions and args are processed
         [first-arg (preprocess first-arg env)])
@@ -127,9 +128,6 @@ Evaluation rules:
 (: preprocess : BRANG DE-ENV -> CORE)
 ;; Converts BRANG to CORE representation using de bruijn indices
 (define (preprocess brexpr env)
-  ;; (: de-extend* : (Listof Symbol) -> DE-ENV)
-  ;; ;; Helper function to extend all names into one env
-  ;; (define (de-extend* names) (foldl de-extend env names))
   (cases brexpr
     [(Num n)       (CNum n)]
     [(Add lhs rhs) (CAdd (preprocess lhs env) (preprocess rhs env))]
@@ -141,7 +139,6 @@ Evaluation rules:
      (CCall (CFun (preprocess body (de-extend name env)))
             (preprocess expr env))]
     [(Fun names body) (preprocess-fun body (first names) (rest names) env)]
-    ;; [(Call fun arg) (CCall (preprocess fun env) (preprocess arg env))]))
     [(Call fun args) (preprocess-call fun (first args) (rest args) env)]))
 
 (: NumV->number : VAL -> Number)
@@ -166,10 +163,7 @@ Evaluation rules:
     [(CSub l r) (arith-op - (eval l env) (eval r env))]
     [(CMul l r) (arith-op * (eval l env) (eval r env))]
     [(CDiv l r) (arith-op / (eval l env) (eval r env))]
-    [(CRef n)
-     (if (< n (length env))
-         (list-ref env n)
-         (error 'eval "undefined reference at index ~s" n))]
+    [(CRef n) (list-ref env n)]
     [(CFun bound-body)
      (FunV bound-body env)]
     [(CCall fun-expr arg-expr)
@@ -224,25 +218,25 @@ Evaluation rules:
       => 124)
 
 (test (run "{call {fun {x y z} {+ {+ x y} z}} 1 2 3}") => 6)
+(test (run "{+ 1 2}") => 3)
+(test (run "{+ 1 h}") =error>
+      "de-empty-env: Empty env does not have any mappings for h")
+(test (run "{/ 15 3}") => 5)
+(test (run "{* 1 2}") => 2)
+(test (run "{- 1 2}") => -1)
+(test (run "{fun {x} x}") =error>
+      "run: evaluation returned a non-number: (FunV (CRef 0) ())")
+(test (run "{with {+ x 1}}") =error>
+      "parse-sexpr: bad `with' syntax in (with (+ x 1))")
+(test (run "{call {fun {+ x y}} 1 2}") =error>
+      "parse-sexpr: bad `fun' syntax in (fun (+ x y))")
+(test (run "{wrong-expr {}}") =error>
+      "parse-sexpr: bad syntax in (wrong-expr ())")
+(test (run "{call 5 3}") =error>
+      "eval: `call' expects a function, got: (NumV 5)")
+(test (run "{+ {fun {x} x} 1}") =error>
+      "arith-op: expected a number, got: (FunV (CRef 0) ())")
+(test (run "{+ {fun {x} x} 1}") =error>
+      "arith-op: expected a number, got: (FunV (CRef 0) ())")
 
-;; Temp tests for testing de bruijn indices TODO: Remove
-;; (define e1 (de-extend de-empty-env 'b))
-;; (define e2 (de-extend e1 'a))
-;; (define e3 (de-extend e2 'x))
-;; (test (e1 'a) =error>
-;; "de-empty-env: Empty env does not have any mappings for a")
-;; (test (e1 'b) => 0)          ; and 'b is mapped to 0
-;; (test (e2 'a) => 0)          ; e2 maps 'a to 0
-;; (test (e2 'b) => 1)          ; and now 'b is mapped to 1
-;; (test (e3 'b) => 2)          ; and now 'b is mapped to 1
-;; (preprocess (parse "{call {fun {x y z} {+ {+ x y} z} }1 2 3}") de-empty-env)
-
-;; Scratch
-;; (Fun '(x y) (Add (Id 'x) (Id 'y)))
-;; (CFun (x) (CFun (y) ((Add (Id 'x) (Id 'y)))))
-;; (Call *** x y)
-;; (CCall (CCall *** x) y)
-;;
-;; (Fun '(x y z) (Add (Id 'x) (Id 'y) (Id 'z)))
-;; (CFun (x) (CFun (y) (Cfun (z) (Add (Id 'x) (Id 'y) (Id 'z)))))
-;; (CCall (CCall (CCall ... (Num 1)) (Num 2)) (Num 3))
+(define minutes-spent 300)
