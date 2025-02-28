@@ -11,8 +11,6 @@ The grammar:
             | <id>
             | { fun { <id> <id> ... } <BRANG> }
             | { call <BRANG> <BRANG> <BRANG> ... }
-            | { bind {{id <BRANG>} {id <BRANG>} ... } <BRANG> }
-            | { bind* {{id <BRANG>} {id <BRANG>} ... } <BRANG>}
 
 Core evaluation rules:
   eval(N,env)                = N
@@ -37,10 +35,10 @@ language that users actually see.
   [Div  BRANG BRANG]
   [Id   Symbol]
   [With Symbol BRANG BRANG]
-  [Fun  (Listof Symbol) BRANG]
-  [Call BRANG (Listof BRANG)]
   [Bind (Listof Symbol) (Listof BRANG) BRANG]
-  [Bind* (Listof Symbol) (Listof BRANG) BRANG])
+  [Bind* (Listof Symbol) (Listof BRANG) BRANG]
+  [Fun  (Listof Symbol) BRANG]
+  [Call BRANG (Listof BRANG)])
 
 (define-type CORE
   [CNum  Number]
@@ -58,6 +56,16 @@ language that users actually see.
   (match sexpr
     [(number: n)    (Num n)]
     [(symbol: name) (Id name)]
+    [(cons (or 'bind 'bind*) more)
+     (match sexpr
+       [(list binder (list (list (symbol: names) (sexpr: named)) ...) (sexpr: body))
+        (if (null? names)
+            (error 'parse-sexpr "`bind' or `bind*' with no bindings in ~s" sexpr)
+            (if (eq? binder 'bind)
+                (Bind names (map parse-sexpr named) (parse-sexpr body))
+                (Bind* names (map parse-sexpr named) (parse-sexpr body))))]
+       [else (error 'parse-sexpr "bad `bind' or `bind*' syntax in ~s" sexpr)])
+     ]
     [(cons 'with more)
      (match sexpr
        [(list 'with (list (symbol: name) named) body)
@@ -66,7 +74,9 @@ language that users actually see.
     [(cons 'fun more)
      (match sexpr
        [(list 'fun (list (symbol: names) ...) body)
-        (Fun names (parse-sexpr body))]
+        (if (null? names)
+            (error 'parse-sexpr "`fun' with no arguments in ~s" sexpr)
+            (Fun names (parse-sexpr body)))]
        [else (error 'parse-sexpr "bad `fun' syntax in ~s" sexpr)])]
     [(list '+ lhs rhs) (Add (parse-sexpr lhs) (parse-sexpr rhs))]
     [(list '- lhs rhs) (Sub (parse-sexpr lhs) (parse-sexpr rhs))]
@@ -74,22 +84,10 @@ language that users actually see.
     [(list '/ lhs rhs) (Div (parse-sexpr lhs) (parse-sexpr rhs))]
     [(cons 'call more)
      (match sexpr
-       [(list 'call fun args ...)
-        (Call (parse-sexpr fun) (map parse-sexpr args))]
+       [(list 'call fun arg args ...)
+        (Call (parse-sexpr fun) (map parse-sexpr (cons arg args)))]
        [else (error 'parse-sexpr "missing arguments to `call' in ~s"
                     sexpr)])]
-    [(cons (or 'bind 'bind*) more)
-     (match sexpr
-       [(list binder
-              (list (list (symbol: names) (sexpr: named)) ...)
-              (sexpr: body))
-        (if (null? names)
-            (error 'parse-sexpr
-                   "`bind' or `bind*' with no bindings in ~s" sexpr)
-            (if (eq? binder 'bind)
-                (Bind names (map parse-sexpr named) (parse-sexpr body))
-                (Bind* names (map parse-sexpr named) (parse-sexpr body))))]
-       [else (error 'parse-sexpr "bad `bind syntax in ~s" sexpr)])]
     [else (error 'parse-sexpr "bad syntax in ~s" sexpr)]))
 
 (: parse : String -> BRANG)
@@ -107,6 +105,7 @@ language that users actually see.
 
 ;; Syntactic environments for the de-Bruijn preprocessing:
 ;; define a type and an empty environment
+
 (define-type DE-ENV = Symbol -> Natural)
 
 (: de-empty-env : DE-ENV)
@@ -114,19 +113,25 @@ language that users actually see.
 (define (de-empty-env id)
   (error 'de-env "Free identifier: ~s" id))
 
-(: de-extend : DE-ENV (U Symbol False) -> DE-ENV)
+(: de-extend : DE-ENV Symbol -> DE-ENV)
 ;; extends a given de-env for a new identifier
 (define (de-extend env id)
   (lambda (name)
     (if (eq? id name)
         0
         (+ 1 (env name)))))
+;; tests, only for demonstration:
+(define e1 (de-extend de-empty-env 'b))
+(define e2 (de-extend e1 'a))
+(test (e1 'a) =error> "Free identifier") ; e1 has no mapping for 'a
+(test (e1 'b) => 0)                      ; and 'b is mapped to 0
+(test (e2 'a) => 0)                      ; e2 maps 'a to 0
+(test (e2 'b) => 1)                      ; and now 'b is mapped to 1
 
 (: preprocess : BRANG DE-ENV -> CORE)
 ;; replaces identifier expressions into Ref AST values
 (define (preprocess expr de-env)
   (: sub : BRANG -> CORE)
-  ;; preprocess BRANG in environment
   (define (sub expr) (preprocess expr de-env))
   (cases expr
     [(Num n)   (CNum n)]
@@ -135,35 +140,36 @@ language that users actually see.
     [(Mul l r) (CMul (sub l) (sub r))]
     [(Div l r) (CDiv (sub l) (sub r))]
     [(With bound-id named-expr bound-body)
+     ;; (CCall (sub (Fun (list bound-id) bound-body))
+     ;;        (sub named-expr))
+     ;; Better alternative:
      (sub (Call (Fun (list bound-id) bound-body) (list named-expr)))]
     [(Id name) (CRef (de-env name))]
+    [(Bind ids named body)
+     (sub (Call (Fun ids body) named))]
+    [(Bind* ids named body)
+     (sub (foldr (lambda ((id : Symbol) 
+                          (named-expr : BRANG) 
+                          (inner-body : BRANG)) 
+                   (With id named-expr inner-body)) 
+                 body 
+                 ids 
+                 named))]
     [(Fun bound-ids bound-body)
-     (cond [(null? bound-ids)
-            (CFun (preprocess bound-body (de-extend de-env #f)))]
-           [(= 1 (length bound-ids))
-            (CFun (preprocess bound-body
-                              (de-extend de-env (first bound-ids))))]
-           [else (sub (Fun (list (first bound-ids))
-                           (Fun (rest bound-ids) bound-body)))])]
+     ;; note that bound-ids are never empty
+     (if (= 1 (length bound-ids))
+         (CFun (preprocess bound-body
+                           (de-extend de-env (first bound-ids))))
+         ;; similar choice to the above here
+         (sub (Fun (list (first bound-ids))
+                   (Fun (rest bound-ids) bound-body))))]
     [(Call fun-expr arg-exprs)
-     (cond [(null? arg-exprs)
-            (CCall (sub fun-expr) (CNum 0))]
-           [(= 1 (length arg-exprs))
-            (CCall (sub fun-expr) (sub (first arg-exprs)))]
-           [else (sub (Call (Call fun-expr (list (first arg-exprs)))
-                            (rest arg-exprs)))])]
-
-    [(Bind ids exprs body) (sub (Call (Fun ids body) exprs))]
-    [(Bind* ids exprs body)
-     (: bind*-to-with : (Listof Symbol) (Listof BRANG) BRANG -> BRANG)
-     ;; convert bind* expressions to with
-     (define (bind*-to-with ids exprs body)
-       (if (null? ids)
-           body
-           (With (first ids)
-                 (first exprs)
-                 (bind*-to-with (rest ids) (rest exprs) body))))
-     (sub (bind*-to-with ids exprs body))]))
+     ;; note that arg-exprs are never empty
+     (if (= 1 (length arg-exprs))
+         (CCall (sub fun-expr) (sub (first arg-exprs)))
+         ;; and a similar choice here too
+         (sub (Call (Call fun-expr (list (first arg-exprs)))
+                    (rest arg-exprs))))]))
 
 (: NumV->number : VAL -> Number)
 ;; convert a FLANG runtime numeric value to a Racket one
@@ -248,8 +254,8 @@ language that users actually see.
       =error> "bad `fun' syntax")
 (test (run "{call {fun {x} } 4}")
       =error> "bad `fun' syntax")
-;; (test (run "{fun {} 1}")
-;;       =error> "`fun' with no arguments")
+(test (run "{fun {} 1}")
+      =error> "`fun' with no arguments")
 (test (run "{with {y} }")
       =error> "bad `with' syntax")
 (test (run "{fun {x} {+ x x}}")
@@ -260,7 +266,8 @@ language that users actually see.
       =error> "arith-op: expected a number")
 (test (run "{call 1 1}")
       =error> "expects a function")
-;; (test (run "{call {fun {x} x}}") =error> "missing arguments to `call'")
+(test (run "{call {fun {x} x}}")
+      =error> "missing arguments to `call'")
 
 ;; test multiple-argument functions
 (test (run "{with {add {fun {x y} {+ x y}}} {call add 7 8}}")
@@ -268,39 +275,23 @@ language that users actually see.
 (test (run "{with {add {fun {x y} {- x y}}} {call add 10 4}}")
       => 6)
 
-;; We actually expect to get an error as there is only one call and two funs,
-;; But instead the second function is automatically curried and called
-;; resulting in 14. Essentially, our call implementation can't detect arity
-;; mismatches.
-(test (run "{call {fun {x} {fun {y} {+ x y}}} 10 4}")
-      => 14)
+;; additional tests
+(test (run "{call {fun {x y} {* x y}} 7}") =error> "non-number") 
+(test (run "{call {fun {z} {/ z 2}} 8 4}") =error> "expects a function")
 
-;; This test is supposed to fail as the first function call didn't recieve
-;; the right number of arguments, instead since it curries arguments, it
-;; returns a function which can be called. In a normal language, this should
-;; throw an error.
-(test (run "{call {call {fun {x y} {+ x y}} 10} 4}")
-      => 14)
+;; bind, bind* tests
+(test (parse-sexpr '{bind {{x 1} {y 2}} {+ x y}})
+      => (Bind '(x y) (list (Num 1) (Num 2)) (Add (Id 'x) (Id 'y))))
 
-(test (run "{bind {{x 1} {y 5} {z 9}} {+ x {+ y z}}}") => 15)
-(test (run "{bind* {{x 1} {y 5} {z x}} {+ x {+ y z}}}") => 7)
-(test (run "{bind {{x 1} {y 5} {z x}} {+ x {+ y z}}}")
-      =error> "de-env: Free identifier: x")
-(test (run "{bind* {{x 1} {y 5} {z x}} {+ x {+ y z}}}") => 7)
-(test (run "{bind {{x 1} {5} {z 9}} {+ x {+ y z}}}") =error>
-      "parse-sexpr: bad `bind syntax")
-(test (run "{bind {{x 1} {z} {z 9}} {+ x {+ y z}}}") =error>
-      "parse-sexpr: bad `bind syntax")
-(test (run "{bind {{x 5 7} {y 8}} {+ x y}}") 
-      =error> "bad `bind syntax")
-(test (run "{bind {{5 x} {y 8}} {+ x y}}") =error> "bad `bind syntax")
-(test (run "{bind {{x 5 6} ...} ...}") =error> "parse-sexpr: bad `bind syntax")
-(test (run "{bind* {} {+ x z}}") =error>
-      "parse-sexpr: `bind' or `bind*' with no bindings in (bind* () (+ x z))")
+(test (parse-sexpr '{bind* {{x 1} {x {+ x 1}} {x {* x 2}}} x})
+      => (Bind* '(x x x) (list (Num 1) (Add (Id 'x) (Num 1)) (Mul (Id 'x) (Num 2))) (Id 'x)))
 
-(test (run "{call {fun {} 1}}") => 1)
-(test (run "{call {fun {} 1} 2}") => 1)
-(test (run "{with {f 123} {call {fun {} f}}}") => 123)
-(test (run "{call}") =error> "missing arguments to `call' in")
+(test (run "{bind {{x 3} {y 4}} {+ x y}}") => 7)
+(test (run "{bind* {{x 3} {x {+ x 1}} {x {* x 2}}} x}") => 8)
 
-(define minutes-spent 300)
+;; Tests demonstrating the three problems
+
+;; calling unary func with no args
+(test (run "{call {fun {z} {+ 2 2}}3}") => 4)
+;; nullary func with dummy as argument
+
