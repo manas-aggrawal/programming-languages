@@ -1,4 +1,4 @@
-#lang pl 06
+#lang pl 09
 
 #|
 The grammar:
@@ -316,7 +316,4 @@ Core evaluation rules:
       => 120)
 (test (run "{if0 {fun {x} {+ x 1}} {+ 1 1} {+ 2 2}}") => 4)
 
-
-
-
-
+(define minutes-spent 180)
