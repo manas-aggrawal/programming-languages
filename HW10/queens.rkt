@@ -123,6 +123,33 @@
 (test (->listof ->nat (filter =3 l123)) => '(3))
 (test (->listof ->nat (filter (lambda (x) (= 1 (diff x 2))) l123))
       => '(1 3))
+;; Define test lists
+(define l12345 (cons 1 (cons 2 (cons 3 (cons 4 (cons 5 null))))))
+(define l1to5 l12345)
+
+;; Test 1: Filter even numbers (keep 2, 4)
+(test (->listof ->nat (filter (lambda (x) (= 0 (mod x 2))) l1to5)) => '(2 4))
+
+;; Test 2: Filter numbers greater than 3 (keep 4, 5)
+(test (->listof ->nat (filter (lambda (x) (> x 3)) l1to5)) => '(4 5))
+
+;; Test 3: Filter numbers equal to 5 (keep 5)
+(test (->listof ->nat (filter (lambda (x) (= x 5)) l1to5)) => '(5))
+
+;; Test 4: Filter numbers less than 2 (keep 1)
+(test (->listof ->nat (filter (lambda (x) (< x 2)) l1to5)) => '(1))
+
+;; Test 5: Filter with always-true predicate (keep all)
+(test (->listof ->nat (filter (lambda (x) #t) l1to5)) => '(1 2 3 4 5))
+
+;; Test 6: Filter with always-false predicate (keep none)
+(test (->listof ->nat (filter (lambda (x) #f) l1to5)) => '())
+
+;; Test 7: Filter odd numbers (keep 1, 3, 5)
+(test (->listof ->nat (filter (lambda (x) (= 1 (mod x 2))) l1to5)) => '(1 3 5))
+
+;; Test 8: Filter numbers not equal to 2 (keep 1, 3, 4, 5)
+(test (->listof ->nat (filter (lambda (x) (not (= x 2))) l1to5)) => '(1 3 4 5))
 
 ;; ==================== Main code ====================
 
@@ -154,6 +181,30 @@
 (test (->bool (threaten? 3 1 1)) => '#f)
 (test (->bool (threaten? 3 1 2)) => '#t)
 (test (->bool (threaten? 3 1 3)) => '#f)
+;; Test same column with n=0 (always threatens)
+(test (->bool (threaten? 2 2 0)) => '#t)
+(test (->bool (threaten? 5 5 0)) => '#t)
+
+;; Test different columns with n=0 (always threatens)
+(test (->bool (threaten? 2 5 0)) => '#t)
+(test (->bool (threaten? 0 3 0)) => '#t)
+
+;; Test diagonal threats (|x - y| = n)
+(test (->bool (threaten? 2 5 3)) => '#t)   
+(test (->bool (threaten? 5 2 3)) => '#t)   
+(test (->bool (threaten? 0 3 3)) => '#t)   
+
+;; Test non-diagonal threats (|x - y| ≠ n)
+(test (->bool (threaten? 2 5 2)) => '#f)   
+(test (->bool (threaten? 1 4 2)) => '#f)   
+
+;; Test edge cases with minimal values
+(test (->bool (threaten? 0 0 0)) => '#t)   
+(test (->bool (threaten? 0 1 1)) => '#t)   
+
+;; Correct test:
+(test (->bool (threaten? 0 1 1)) => '#t)   
+(test (->bool (threaten? 1 0 1)) => '#t)   
 
 ;; safe? : Nat Nat (Listof Nat) -> Bool
 ;; determines whether it's safe to put a queen at column col when it's n
@@ -178,21 +229,6 @@
 (test (->bool (safe? 2 1 l123)) => '#f)
 (test (->bool (safe? 3 1 l123)) => '#f)
 (test (->bool (safe? 4 1 l123)) => '#f)
-
-;; TODO: delete
-;;(0 1 0)
-;;   c0 c1 c2 c3 c4 c5
-;;r0 x  q  x  x  x  ?  x
-;;r1 x  x  q  x  x  x  x
-;;r2 x  x  x  x  q  x  x
-;;r3 x  x  x  x  x  x  x
-;;r4 x  x  x  x  x  x  x
-;;r5 x  x  x  x  x  x  x
-;;r6 x  x  x  x  x  x  x
-;;
-;; if n == 0 then true
-;; if x == y then true
-;; if |x - y| == n then true
 
 ;; configurations : Nat (Listof Nat) -> (Listof (Listof Nat))
 ;; this is the core of the solution: finds all valid n-row
@@ -227,6 +263,7 @@
 (test (->listof ->nat (range 0 0)) => '())
 (test (->listof ->nat (range 0 5)) => '(0 1 2 3 4))
 (test (->listof ->nat (range 2 5)) => '(2 3 4))
+
 ;;
 ;; queens : Nat -> (Listof Nat)
 ;; finally, the solution is simple -- find all the configurations of
@@ -259,6 +296,7 @@
 
 ;; Finally, this is what you want to try:
 ;;   (->listof ->nat (queens 8))
+(test (->listof ->nat (queens 8)) => '(3 1 6 2 5 7 4 0))
 ;; You can also try to see how long it takes to find all solutions by
 ;; making `queens' return the whole list, and use it like this:
 ;;   (->listof (->listof ->nat) (queens-all 4))
