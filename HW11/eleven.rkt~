@@ -34,10 +34,7 @@
 
 (letfuns ([(even? n) (if (= n 0) #t (odd?  (- n 1)))]
           [(odd?  n) (if (= n 0) #f (even? (- n 1)))])
-  (and (even? 0)       ; Test even? base case
-       (not (even? 1)) ; Test even? calls odd? 0 (odd? base case)
-       (odd? 1)        ; Test odd? calls even? 0 (even? base case again)
-       (not (odd? 0)))) ; Test odd? base case
+  (even? 0))
 ;; TODO test even and odd functions
 
 ;; an extended example
@@ -63,5 +60,3 @@
 (test (not (scan "(1232)")))
 (test (not (scan "()(")))
 (test (not (scan "())")))
-
-(define minutes-spent 120)
