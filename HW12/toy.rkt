@@ -38,7 +38,7 @@
 
 (: parse-sexpr : Sexpr -> TOY)
 ;; parses s-expressions into TOYs
-(define (parse-sexpr sexpr) 
+(define (parse-sexpr sexpr)
   (match sexpr
     [(number: n)    (Num n)]
     [(symbol: name) (Id name)]
@@ -97,6 +97,8 @@
   [PrimV ((Listof VAL) -> VAL)]
   [BogusV Any])
 
+(define the-bogus-value (BogusV 420))
+
 (: raw-extend : (Listof Symbol) (Listof (Boxof VAL)) ENV -> ENV)
 ;; helper for extend: extends an environment with a new frame using boxed values.
 (define (raw-extend names boxed-values env)
@@ -111,6 +113,17 @@
 ;; extends an environment with a new frame, boxing the values.
 (define (extend names values env)
   (raw-extend names (map (inst box VAL) values) env))
+
+(: extend-rec : (Listof Symbol) (Listof TOY) ENV -> ENV)
+;; extends an environment with a new recursive frame
+(define (extend-rec names exprs env)
+  (let* ([new-cells (build-list (length names) (lambda (_) (box the-bogus-value)))]
+         [new-env   (raw-extend names new-cells env)]
+         [values    (map (lambda ([expr : TOY]) (eval expr new-env)) exprs)])
+         (for-each  (lambda ([cell : (Boxof VAL)] [value : VAL])
+                      (set-box! cell value))
+                      new-cells values)
+         new-env))
 
 (: lookup : Symbol ENV -> (Boxof VAL))
 ;; lookup a symbol in an environment, frame by frame,
@@ -160,7 +173,6 @@
 
 ;;; ----------------------------------------------------------------
 ;;; Evaluation
-(define the-bogus-value (BogusV 5))
 (: eval : TOY ENV -> VAL)
 ;; evaluates TOY expressions
 (define (eval expr env)
@@ -170,11 +182,11 @@
   (cases expr
     [(Num n)   (RktV n)]
     [(Id name) (unbox (lookup name env))]
-    [(Set name expr) (begin (set-box! (lookup name env) (eval* expr)) the-bogus-value)] 
+    [(Set name expr) (begin (set-box! (lookup name env) (eval* expr)) the-bogus-value)]
     [(Bind names exprs bound-body)
      (eval bound-body (extend names (map eval* exprs) env))]
     [(BindRec names exprs bound-body)
-     (eval bound-body (extend names (map eval* exprs) env))]
+     (eval bound-body (extend-rec names exprs env))]
     [(Fun names bound-body)
      (FunV names bound-body env)]
     [(Call fun-expr arg-exprs)
@@ -247,3 +259,39 @@
 (test (run "{bind {{x 5}} {bind {{y {set 6}}} x}}") =error> "bad `set' syntax")
 
 ;;; ----------------------------------------------------------------
+
+(test (run "{bindrec {{fact {fun {n}
+                              {if {= 0 n}
+                                1
+                                {* n {fact {- n 1}}}}}}}
+              {fact 5}}")
+      => 120)
+
+
+ (test (run "{bindrec {{odd?  {fun {n}
+                                {if {= n 0} false {even? {- n 1}}}}}
+                       {even? {fun {n}
+                                {if {= n 0} true  {odd?  {- n 1}}}}}
+                                }
+                      {odd? 100}}") => #f)
+
+ (test (run "{bindrec {{odd?  {fun {n}
+                                {if {= n 0} false {even? {- n 1}}}}}
+                       {even? {fun {n}
+                                {if {= n 0} true  {odd?  {- n 1}}}}}
+                                }
+                      {odd? 101}}") => #t)
+
+ (test (run "{bindrec {{odd?  {fun {n}
+                                {if {= n 0} false {even? {- n 1}}}}}
+                       {even? {fun {n}
+                                {if {= n 0} true  {odd?  {- n 1}}}}}
+                                }
+                      {even? 100}}") => #t)
+
+ (test (run "{bindrec {{odd?  {fun {n}
+                                {if {= n 0} false {even? {- n 1}}}}}
+                       {even? {fun {n}
+                                {if {= n 0} true  {odd?  {- n 1}}}}}
+                                }
+                      {even? 101}}") => #f)
