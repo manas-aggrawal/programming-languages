@@ -9,19 +9,25 @@
    <TOY> ::= <num>
            | <id>
            | { bind {{ <id> <TOY> } ... } <TOY> }
+           | { bindrec {{ <id> <TOY> } ... } <TOY> }
            | { fun { <id> ... } <TOY> }
            | { if <TOY> <TOY> <TOY> }
            | { <TOY> <TOY> ... }
+           | { set! <id> <TOY> }
+           | <TOY> ::= ...
 |#
 
 ;; A matching abstract syntax tree datatype:
+;; TODO: indentation
 (define-type TOY
   [Num  Number]
   [Id   Symbol]
   [Bind (Listof Symbol) (Listof TOY) TOY]
+  [BindRec (Listof Symbol) (Listof TOY) TOY]
   [Fun  (Listof Symbol) TOY]
   [Call TOY (Listof TOY)]
-  [If   TOY TOY TOY])
+  [If   TOY TOY TOY]
+  [Set  Symbol TOY])
 
 (: unique-list? : (Listof Any) -> Boolean)
 ;; Tests whether a list is unique, guards Bind and Fun values.
@@ -32,25 +38,31 @@
 
 (: parse-sexpr : Sexpr -> TOY)
 ;; parses s-expressions into TOYs
-(define (parse-sexpr sexpr)
+(define (parse-sexpr sexpr) 
   (match sexpr
     [(number: n)    (Num n)]
     [(symbol: name) (Id name)]
-    [(cons 'bind more)
+    [(cons 'set more)
      (match sexpr
-       [(list 'bind (list (list (symbol: names) (sexpr: nameds))
-                          ...)
-          body)
+       [(list 'set (symbol: name) expr) (Set name (parse-sexpr expr))]
+       [else (error 'parse-sexpr "bad `set' syntax in ~s" sexpr)])]
+    [(cons (and binder (or 'bind 'bindrec)) more)
+     (define (bind-or-bindrec sym)
+       (if (eq? 'bind sym) Bind BindRec))
+     (match sexpr
+       [(list _ (list (list (symbol: names) (sexpr: nameds)) ...) body)
         (if (unique-list? names)
-          (Bind names (map parse-sexpr nameds) (parse-sexpr body))
-          (error 'parse-sexpr "duplicate `bind' names: ~s" names))]
-       [else (error 'parse-sexpr "bad `bind' syntax in ~s" sexpr)])]
+            ((bind-or-bindrec binder) names (map parse-sexpr nameds) (parse-sexpr body))
+            (error 'parse-sexpr "duplicate `bind or bindrec' names: ~s"
+                   names))]
+       [else (error 'parse-sexpr "bad `bind or bindrec' syntax in ~s"
+                    sexpr)])]
     [(cons 'fun more)
      (match sexpr
        [(list 'fun (list (symbol: names) ...) body)
         (if (unique-list? names)
-          (Fun names (parse-sexpr body))
-          (error 'parse-sexpr "duplicate `fun' names: ~s" names))]
+            (Fun names (parse-sexpr body))
+            (error 'parse-sexpr "duplicate `fun' names: ~s" names))]
        [else (error 'parse-sexpr "bad `fun' syntax in ~s" sexpr)])]
     [(cons 'if more)
      (match sexpr
@@ -77,34 +89,40 @@
   [FrameEnv FRAME ENV])
 
 ;; a frame is an association list of names and values.
-(define-type FRAME = (Listof (List Symbol VAL)))
+(define-type FRAME = (Listof (List Symbol (Boxof VAL))))
 
 (define-type VAL
   [RktV  Any]
   [FunV  (Listof Symbol) TOY ENV]
-  [PrimV ((Listof VAL) -> VAL)])
+  [PrimV ((Listof VAL) -> VAL)]
+  [BogusV Any])
+
+(: raw-extend : (Listof Symbol) (Listof (Boxof VAL)) ENV -> ENV)
+;; helper for extend: extends an environment with a new frame using boxed values.
+(define (raw-extend names boxed-values env)
+  (if (= (length names) (length boxed-values))
+      (FrameEnv (map (lambda ([name : Symbol] [val : (Boxof VAL)])
+                       (list name val))
+                     names boxed-values)
+                env)
+      (error 'raw-extend "arity mismatch for names: ~s" names)))
 
 (: extend : (Listof Symbol) (Listof VAL) ENV -> ENV)
-;; extends an environment with a new frame.
+;; extends an environment with a new frame, boxing the values.
 (define (extend names values env)
-  (if (= (length names) (length values))
-    (FrameEnv (map (lambda ([name : Symbol] [val : VAL])
-                     (list name val))
-                   names values)
-              env)
-    (error 'extend "arity mismatch for names: ~s" names)))
+  (raw-extend names (map (inst box VAL) values) env))
 
-(: lookup : Symbol ENV -> VAL)
+(: lookup : Symbol ENV -> (Boxof VAL))
 ;; lookup a symbol in an environment, frame by frame,
-;; return its value or throw an error if it isn't bound
+;; return its boxed value or throw an error if it isn't bound
 (define (lookup name env)
   (cases env
     [(EmptyEnv) (error 'lookup "no binding for ~s" name)]
     [(FrameEnv frame rest)
      (let ([cell (assq name frame)])
        (if cell
-         (second cell)
-         (lookup name rest)))]))
+           (second cell)
+           (lookup name rest)))]))
 
 (: unwrap-rktv : VAL -> Any)
 ;; helper for `racket-func->prim-val': unwrap a RktV wrapper in
@@ -114,7 +132,7 @@
     [(RktV v) v]
     [else (error 'racket-func "bad input: ~s" x)]))
 
-(: racket-func->prim-val : Function -> VAL)
+(: racket-func->prim-val : Function -> (Boxof VAL))
 ;; converts a racket function to a primitive evaluator function
 ;; which is a PrimV holding a ((Listof VAL) -> VAL) function.
 ;; (the resulting function will use the list function as is,
@@ -122,8 +140,8 @@
 ;; if it's given a bad number of arguments or bad input types.)
 (define (racket-func->prim-val racket-func)
   (define list-func (make-untyped-list-function racket-func))
-  (PrimV (lambda (args)
-           (RktV (list-func (map unwrap-rktv args))))))
+  (box (PrimV (lambda (args)
+                (RktV (list-func (map unwrap-rktv args)))))))
 
 ;; The global environment has a few primitives:
 (: global-environment : ENV)
@@ -136,13 +154,13 @@
                   (list '> (racket-func->prim-val >))
                   (list '= (racket-func->prim-val =))
                   ;; values
-                  (list 'true  (RktV #t))
-                  (list 'false (RktV #f)))
+                  (list 'true  (box (RktV #t)))
+                  (list 'false (box (RktV #f))))
             (EmptyEnv)))
 
 ;;; ----------------------------------------------------------------
 ;;; Evaluation
-
+(define the-bogus-value (BogusV 5))
 (: eval : TOY ENV -> VAL)
 ;; evaluates TOY expressions
 (define (eval expr env)
@@ -151,8 +169,11 @@
   (define (eval* expr) (eval expr env))
   (cases expr
     [(Num n)   (RktV n)]
-    [(Id name) (lookup name env)]
+    [(Id name) (unbox (lookup name env))]
+    [(Set name expr) (begin (set-box! (lookup name env) (eval* expr)) the-bogus-value)] 
     [(Bind names exprs bound-body)
+     (eval bound-body (extend names (map eval* exprs) env))]
+    [(BindRec names exprs bound-body)
      (eval bound-body (extend names (map eval* exprs) env))]
     [(Fun names bound-body)
      (FunV names bound-body env)]
@@ -169,8 +190,8 @@
      (eval* (if (cases (eval* cond-expr)
                   [(RktV v) v] ; Racket value => use as boolean
                   [else #t])   ; other values are always true
-              then-expr
-              else-expr))]))
+                then-expr
+                else-expr))]))
 
 (: run : String -> Any)
 ;; evaluate a TOY program contained in a string
@@ -207,7 +228,7 @@
       => 124)
 
 ;; More tests for complete coverage
-(test (run "{bind x 5 x}")      =error> "bad `bind' syntax")
+(test (run "{bind x 5 x}")      =error> "bad `bind or bindrec' syntax")
 (test (run "{fun x x}")         =error> "bad `fun' syntax")
 (test (run "{if x}")            =error> "bad `if' syntax")
 (test (run "{}")                =error> "bad syntax")
@@ -222,5 +243,7 @@
 (test (run "{if {< 5 4} 6 7}")  => 7)
 (test (run "{if + 6 7}")        => 6)
 (test (run "{fun {x} x}")       =error> "returned a bad value")
+(test (run "{bind {{x 5}} {bind {{y {set x 6}}} x}}") => 6)
+(test (run "{bind {{x 5}} {bind {{y {set 6}}} x}}") =error> "bad `set' syntax")
 
 ;;; ----------------------------------------------------------------
