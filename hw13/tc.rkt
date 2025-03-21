@@ -1,34 +1,31 @@
-;; ** The TOY interpreter
+#lang pl 13
 
-#lang pl 12
-
-;;; ----------------------------------------------------------------
+;;; ==================================================================
 ;;; Syntax
 
 #| The BNF:
    <TOY> ::= <num>
            | <id>
+           | { set! <id> <TOY> }
            | { bind {{ <id> <TOY> } ... } <TOY> <TOY> ... }
            | { bindrec {{ <id> <TOY> } ... } <TOY> <TOY> ... }
            | { fun { <id> ... } <TOY> <TOY> ... }
            | { rfun { <id> ... } <TOY> <TOY> ... }
            | { if <TOY> <TOY> <TOY> }
            | { <TOY> <TOY> ... }
-           | { set! <id> <TOY> }
-           | <TOY> ::= ...
 |#
 
 ;; A matching abstract syntax tree datatype:
 (define-type TOY
-  [Num     Number]
-  [Id      Symbol]
+  [Num  Number]
+  [Id   Symbol]
+  [Set  Symbol TOY]
   [Bind    (Listof Symbol) (Listof TOY) (Listof TOY)]
   [BindRec (Listof Symbol) (Listof TOY) (Listof TOY)]
-  [Fun     (Listof Symbol) (Listof TOY)]
-  [RFun    (Listof Symbol) (Listof TOY)]
-  [Call    TOY (Listof TOY)]
-  [If      TOY TOY TOY]
-  [Set     Symbol TOY])
+  [Fun  (Listof Symbol) (Listof TOY)]
+  [RFun (Listof Symbol) (Listof TOY)]
+  [Call TOY (Listof TOY)]
+  [If   TOY TOY TOY])
 
 (: unique-list? : (Listof Any) -> Boolean)
 ;; Tests whether a list is unique, guards Bind and Fun values.
@@ -45,37 +42,35 @@
     [(symbol: name) (Id name)]
     [(cons 'set! more)
      (match sexpr
-       [(list 'set! (symbol: name) expr) (Set name (parse-sexpr expr))]
+       [(list 'set! (symbol: name) new) (Set name (parse-sexpr new))]
        [else (error 'parse-sexpr "bad `set!' syntax in ~s" sexpr)])]
     [(cons (and binder (or 'bind 'bindrec)) more)
      (match sexpr
        [(list _ (list (list (symbol: names) (sexpr: nameds)) ...)
-              body0 body ...)
+          body0 body ...)
         (if (unique-list? names)
-            ((if (eq? 'bind binder) Bind BindRec)
-             names
-             (map parse-sexpr nameds)
-             (map parse-sexpr (cons body0 body)))
-            (error 'parse-sexpr "duplicate `bind or bindrec' names: ~s"
-                   names))]
-       [else (error 'parse-sexpr "bad `bind or bindrec' syntax in ~s"
-                    sexpr)])]
-    [(cons (and rfun-or-fun (or 'fun 'rfun)) more)
+          ((if (eq? 'bind binder) Bind BindRec)
+           names
+           (map parse-sexpr nameds)
+           (map parse-sexpr (cons body0 body)))
+          (error 'parse-sexpr "duplicate `~s' names: ~s" binder names))]
+       [else (error 'parse-sexpr "bad `~s' syntax in ~s"
+                    binder sexpr)])]
+    [(cons (and funner (or 'fun 'rfun)) more)
      (match sexpr
        [(list _ (list (symbol: names) ...)
-              body0 body ...)
+          body0 body ...)
         (if (unique-list? names)
-            ((if (eq? 'fun rfun-or-fun) Fun RFun)
-             names
-             (map parse-sexpr (cons body0 body)))
-            (error 'parse-sexpr "duplicate `fun' names: ~s" names))]
-       [else (error 'parse-sexpr "bad `fun' syntax in ~s" sexpr)])]
+          ((if (eq? 'fun funner) Fun RFun)
+           names
+           (map parse-sexpr (cons body0 body)))
+          (error 'parse-sexpr "duplicate `~s' names: ~s" funner names))]
+       [else (error 'parse-sexpr "bad `~s' syntax in ~s"
+                    funner sexpr)])]
     [(cons 'if more)
      (match sexpr
        [(list 'if cond then else)
-        (If (parse-sexpr cond)
-            (parse-sexpr then)
-            (parse-sexpr else))]
+        (If (parse-sexpr cond) (parse-sexpr then) (parse-sexpr else))]
        [else (error 'parse-sexpr "bad `if' syntax in ~s" sexpr)])]
     [(list fun args ...) ; other lists are applications
      (Call (parse-sexpr fun)
@@ -87,7 +82,7 @@
 (define (parse str)
   (parse-sexpr (string->sexpr str)))
 
-;;; ----------------------------------------------------------------
+;;; ==================================================================
 ;;; Values and environments
 
 (define-type ENV
@@ -98,56 +93,70 @@
 (define-type FRAME = (Listof (List Symbol (Boxof VAL))))
 
 (define-type VAL
+  [BogusV]
   [RktV  Any]
-  [FunV  (Listof Symbol) (Listof TOY) ENV Boolean]
-  [PrimV ((Listof VAL) -> VAL)]
-  [BogusV Any])
+  [FunV  (Listof Symbol) (Listof TOY) ENV Boolean] ; byref? flag
+  [PrimV ((Listof VAL) -> VAL)])
 
-;; Just a bogus value
-(define the-bogus-value (BogusV 420))
+;; a single bogus value to use wherever needed
+(define the-bogus-value (BogusV))
 
 (: raw-extend : (Listof Symbol) (Listof (Boxof VAL)) ENV -> ENV)
-;; helper for extend
-;; extends an environment with a new frame using boxed values.
+;; extends an environment with a new frame, given names and value
+;; boxes
 (define (raw-extend names boxed-values env)
   (if (= (length names) (length boxed-values))
-      (FrameEnv (map (lambda ([name : Symbol] [val : (Boxof VAL)])
-                       (list name val))
-                     names boxed-values)
-                env)
-      (error 'raw-extend "arity mismatch for names: ~s" names)))
+    (FrameEnv (map (lambda ([name : Symbol] [boxed-val : (Boxof VAL)])
+                     (list name boxed-val))
+                   names boxed-values)
+              env)
+    (error 'raw-extend "arity mismatch for names: ~s" names)))
 
 (: extend : (Listof Symbol) (Listof VAL) ENV -> ENV)
-;; extends an environment with a new frame, boxing the values.
+;; extends an environment with a new frame (given plain values).
 (define (extend names values env)
   (raw-extend names (map (inst box VAL) values) env))
 
 (: extend-rec : (Listof Symbol) (Listof TOY) ENV -> ENV)
 ;; extends an environment with a new recursive frame
+;;
+;; (define (extend-rec names exprs env)
+;;   ;; note: no need to check the lengths here, since this is only
+;;   ;; called for `bindrec`, and the syntax make it impossible to have
+;;   ;; different lengths
+;;   (let* ([boxes   (map (lambda (x) (box the-bogus-value)) exprs)]
+;;          [new-env (raw-extend names boxes env)])
+;;     (for-each (lambda ([box : (Boxof VAL)] [expr : TOY])
+;;                 (set-box! box (eval expr new-env)))
+;;               boxes exprs)
+;;     new-env))
+;;
+;; Slightly simpler version, as we've seen in class:
+;;
 (define (extend-rec names exprs env)
-  (let* ([new-cells (build-list (length names)
-                                (lambda (_) (box the-bogus-value)))]
-         [new-env   (raw-extend names new-cells env)]
-         [values    (map (lambda ([expr : TOY]) (eval expr new-env)) exprs)])
-    (for-each  (lambda ([cell : (Boxof VAL)] [value : VAL])
-                 (set-box! cell value))
-               new-cells values)
-    new-env))
+  (define new-env
+    (extend names (map (lambda (_) the-bogus-value) exprs) env))
+  ;; note: no need to check the lengths here, since this is only
+  ;; called for `bindrec`, and the syntax make it impossible to have
+  ;; different lengths
+  (for-each (lambda ([name : Symbol] [expr : TOY])
+              (set-box! (lookup name new-env) (eval expr new-env)))
+            names exprs)
+  new-env)
 
 (: lookup : Symbol ENV -> (Boxof VAL))
-;; lookup a symbol in an environment, frame by frame,
-;; return its boxed value or throw an error if it isn't bound
+;; looks for a name in an environment, searching through each frame.
 (define (lookup name env)
   (cases env
     [(EmptyEnv) (error 'lookup "no binding for ~s" name)]
     [(FrameEnv frame rest)
      (let ([cell (assq name frame)])
        (if cell
-           (second cell)
-           (lookup name rest)))]))
+         (second cell)
+         (lookup name rest)))]))
 
 (: unwrap-rktv : VAL -> Any)
-;; helper for `racket-func->prim-val': unwrap a RktV wrapper in
+;; helper for racket-func->prim-val: unwrap a RktV wrapper in
 ;; preparation to be sent to the primitive function
 (define (unwrap-rktv x)
   (cases x
@@ -155,11 +164,11 @@
     [else (error 'racket-func "bad input: ~s" x)]))
 
 (: racket-func->prim-val : Function -> (Boxof VAL))
-;; converts a racket function to a primitive evaluator function
-;; which is a PrimV holding a ((Listof VAL) -> VAL) function.
-;; (the resulting function will use the list function as is,
-;; and it is the list function's responsibility to throw an error
-;; if it's given a bad number of arguments or bad input types.)
+;; converts a racket function to a primitive evaluator function which
+;; is a PrimV holding a ((Listof VAL) -> VAL) function.  (the
+;; resulting function will use the list function as is, and it is the
+;; list function's responsibility to throw an error if it's given a
+;; bad number of arguments or bad input types.)
 (define (racket-func->prim-val racket-func)
   (define list-func (make-untyped-list-function racket-func))
   (box (PrimV (lambda (args)
@@ -180,25 +189,34 @@
                   (list 'false (box (RktV #f))))
             (EmptyEnv)))
 
-;;; ----------------------------------------------------------------
+;;; ==================================================================
 ;;; Evaluation
+
 (: eval-body : (Listof TOY) ENV -> VAL)
 ;; evaluates a list of expressions, returns the last value
 (define (eval-body exprs env)
-  (let ([evaled-body (eval (first exprs) env)])
-    (if (null? (rest exprs))
-        evaled-body
-        (eval-body (rest exprs) env))))
+  ;; note: relies on the fact that the body is never empty
+  (let ([1st  (eval (first exprs) env)]
+        [rest (rest exprs)])
+    (if (null? rest)
+      1st
+      (eval-body rest env)))
+  ;; a shorter version that uses `foldl`
+  ;; (foldl (lambda ([expr : TOY] [old : VAL]) (eval expr env))
+  ;;        (eval (first exprs) env)
+  ;;        (rest exprs))
+  )
 
 (: get-boxes : (Listof TOY) ENV -> (Listof (Boxof VAL)))
-;; Takes arguments of a function and returns its refrences via boxes.
-;; If the argument is not an identifier, an error is thrown.
-(define (get-boxes arg-exprs env)
-  (map (lambda ([expr : TOY])
-         (cases expr
+;; utility for applying rfun
+(define (get-boxes exprs env)
+  (map (lambda ([e : TOY])
+         (cases e
            [(Id name) (lookup name env)]
-           [else (error 'rfun "called with a non-identifier ~s" expr)]))
-       arg-exprs))
+           [else (error 'eval
+                        "rfun application with a non-identifier: ~s"
+                        e)]))
+       exprs))
 
 (: eval : TOY ENV -> VAL)
 ;; evaluates TOY expressions
@@ -209,36 +227,37 @@
   (cases expr
     [(Num n)   (RktV n)]
     [(Id name) (unbox (lookup name env))]
-    [(Set name expr)
-     (begin (set-box! (lookup name env) (eval* expr)) the-bogus-value)]
-    [(Bind names exprs bound-bodies)
-     (eval-body bound-bodies (extend names (map eval* exprs) env))]
-    [(BindRec names exprs bound-bodies)
-     (eval-body bound-bodies (extend-rec names exprs env))]
-    [(Fun names bound-bodies)
-     (FunV names bound-bodies env #f)]
-    [(RFun names bound-bodies)
-     (FunV names bound-bodies env #t)]
+    [(Set name new)
+     (set-box! (lookup name env) (eval* new))
+     the-bogus-value]
+    [(Bind names exprs bound-body)
+     (eval-body bound-body (extend names (map eval* exprs) env))]
+    [(BindRec names exprs bound-body)
+     (eval-body bound-body (extend-rec names exprs env))]
+    [(Fun names bound-body)
+     (FunV names bound-body env #f)]
+    [(RFun names bound-body)
+     (FunV names bound-body env #t)]
     [(Call fun-expr arg-exprs)
      (define fval (eval* fun-expr))
-     (define (arg-vals) (map eval* arg-exprs))
+     ;; delay evaluating the arguments
+     (define arg-vals (lambda () (map eval* arg-exprs)))
      (cases fval
        [(PrimV proc) (proc (arg-vals))]
-       [(FunV names body fun-env by-ref?)
-        (if by-ref?
-            (eval-body body (raw-extend names
-                                        (get-boxes arg-exprs env)
-                                        fun-env))
-            (eval-body body (extend names (arg-vals) fun-env)))]
-
+       [(FunV names body fun-env byref?)
+        (eval-body body (if byref?
+                          (raw-extend names
+                                      (get-boxes arg-exprs env)
+                                      fun-env)
+                          (extend names (arg-vals) fun-env)))]
        [else (error 'eval "function call with a non-function: ~s"
                     fval)])]
     [(If cond-expr then-expr else-expr)
      (eval* (if (cases (eval* cond-expr)
                   [(RktV v) v] ; Racket value => use as boolean
                   [else #t])   ; other values are always true
-                then-expr
-                else-expr))]))
+              then-expr
+              else-expr))]))
 
 (: run : String -> Any)
 ;; evaluate a TOY program contained in a string
@@ -249,7 +268,7 @@
       [else (error 'run "evaluation returned a bad value: ~s"
                    result)])))
 
-;;; ----------------------------------------------------------------
+;;; ==================================================================
 ;;; Tests
 
 (test (run "{{fun {x} {+ x 1}} 4}")
@@ -275,7 +294,7 @@
       => 124)
 
 ;; More tests for complete coverage
-(test (run "{bind x 5 x}")      =error> "bad `bind or bindrec' syntax")
+(test (run "{bind x 5 x}")      =error> "bad `bind' syntax")
 (test (run "{fun x x}")         =error> "bad `fun' syntax")
 (test (run "{if x}")            =error> "bad `if' syntax")
 (test (run "{}")                =error> "bad syntax")
@@ -290,12 +309,13 @@
 (test (run "{if {< 5 4} 6 7}")  => 7)
 (test (run "{if + 6 7}")        => 6)
 (test (run "{fun {x} x}")       =error> "returned a bad value")
-(test (run "{bind {{x 5}} {bind {{y {set! x 6}}} x}}") => 6)
-(test (run "{bind {{x 5}} {bind {{y {set! 6}}} x}}")
-      =error> "bad `set!' syntax")
 
-;;; ----------------------------------------------------------------
+;; assignment tests
+(test (run "{set! {+ x 1} x}")  =error> "bad `set!' syntax")
+(test (run "{bind {{x 1}} {set! x {+ x 1}} x}") => 2)
 
+;; bindrec tests
+(test (run "{bindrec {x 6} x}") =error> "bad `bindrec' syntax")
 (test (run "{bindrec {{fact {fun {n}
                               {if {= 0 n}
                                 1
@@ -303,34 +323,7 @@
               {fact 5}}")
       => 120)
 
-
-(test (run "{bindrec {{odd?  {fun {n}
-                                {if {= n 0} false {even? {- n 1}}}}}
-                       {even? {fun {n}
-                                {if {= n 0} true  {odd?  {- n 1}}}}}
-                                }
-                      {odd? 100}}") => #f)
-
-(test (run "{bindrec {{odd?  {fun {n}
-                                {if {= n 0} false {even? {- n 1}}}}}
-                       {even? {fun {n}
-                                {if {= n 0} true  {odd?  {- n 1}}}}}
-                                }
-                      {odd? 101}}") => #t)
-
-(test (run "{bindrec {{odd?  {fun {n}
-                                {if {= n 0} false {even? {- n 1}}}}}
-                       {even? {fun {n}
-                                {if {= n 0} true  {odd?  {- n 1}}}}}
-                                }
-                      {even? 100}}") => #t)
-
-(test (run "{bindrec {{odd?  {fun {n}
-                                {if {= n 0} false {even? {- n 1}}}}}
-                       {even? {fun {n}
-                                {if {= n 0} true  {odd?  {- n 1}}}}}
-                                }
-                      {even? 101}}") => #f)
+;; tests for multiple expressions and assignment
 (test (run "{bind {{make-counter
                      {fun {}
                        {bind {{c 0}}
@@ -347,9 +340,8 @@
               {+ {foo} {* 10 {foo}}}}")
       => 21)
 
-(test (run "{{rfun {x} x} {/ 4 0}}") =error> "non-identifier")
-(test (run "{5 {/ 6 0}}") =error> "non-function")
-
+;; `rfun' tests
+(test (run "{{rfun {x} x} 4}") =error> "non-identifier")
 (test (run "{bind {{swap! {rfun {x y}
                             {bind {{tmp x}}
                               {set! x y}
@@ -360,4 +352,8 @@
               {+ a {* 10 b}}}")
       => 12)
 
-(define minutes-spent 300)
+;; test that argument are not evaluated redundantly
+(test (run "{{rfun {x} x} {/ 4 0}}") =error> "non-identifier")
+(test (run "{5 {/ 6 0}}") =error> "non-function")
+
+;;; ==================================================================
