@@ -1,13 +1,7 @@
-# CS5400
+# CS5400 (Principles of Programming Languages)
 
-Homeworks for class
+This repo is for PL course I took under Prof. Eli Barzilay at Northeastern University, Boston during my MS Computer Science program.
 
-Checklist
+It contains homeworks and small projects that I did during the course.
 
-1. Use meaningful names instead of 1 letter names
-2. Purpose statement should be present
-3. Unnecessary checks when they are not needed like “foldl” automatically returns base case.
-4. Test short circuiting using division by zero or any other failed case in our language.
-5. Cover All test cases
-6. No “TODOS” in the purpose statement.
-7. Store results using “let” to avoid recomputing same result.
+The most interesting one is HW12 - Toy Compiler. Where as the name suggests I along with my homework partner built a small compiler.
